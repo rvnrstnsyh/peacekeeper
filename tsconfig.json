@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "_dist",
+    "removeComments": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "#/*": ["./sys/*"],
+      "!/*": ["./tests/*"]
+    },
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": false,
+    "types": ["node", "vitest/globals"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx"
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "definition.d.ts", "drizzle.config.ts", "eslint.config.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "_dist", "_drizzle"]
+}

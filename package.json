@@ -1,0 +1,108 @@
+{
+  "name": "peacekeeper",
+  "version": "0.1.0",
+  "description": "RESTful API (Representational State Transfer Application Programming Interface)",
+  "author": "Rivane Rasetiansyah",
+  "license": "Apache-2.0",
+  "keywords": [
+    "node"
+  ],
+  "homepage": "https://github.com/rvnrstnsyh/peacekeeper",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rvnrstnsyh/peacekeeper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rvnrstnsyh/peacekeeper/issues"
+  },
+  "contributors": [],
+  "engines": {
+    "node": ">=24.11.1",
+    "npm": ">=11.7.0"
+  },
+  "main": "_dist/src/server.js",
+  "type": "commonjs",
+  "_moduleAliases": {
+    "@": "_dist/src",
+    "!": "_dist/tests"
+  },
+  "scripts": {
+    "dev:node": "tsc-watch --onSuccess \"nodemon _dist/src/server.js\"",
+    "dev:rust": "cargo watch --workdir sys -x run",
+    "dev": "concurrently -k -n RUST,NODE \"npm run dev:rust\" \"npm run dev:node\"",
+    "prod:node": "node _dist/src/server.js",
+    "prod:rust": "cargo run --release --manifest-path sys/Cargo.toml",
+    "prod": "concurrently -k -n RUST,NODE \"npm run prod:rust\" \"npm run prod:node\"",
+    "build:node": "tsc",
+    "build:rust": "cargo build --release --manifest-path sys/Cargo.toml",
+    "build": "npm-run-all build:rust build:node",
+    "lint": "npx eslint . --ext .ts --ignore-pattern \"_drizzle/**\"",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "fmt": "prettier --write \"**/*.{js,ts,json,md,yml,yaml}\"",
+    "fmt:check": "prettier --check \"**/*.{js,ts,json,md,yml,yaml}\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/database/migration/migrate.ts",
+    "db:push": "drizzle-kit push",
+    "db:pull": "drizzle-kit pull",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx src/database/seed/seed.ts",
+    "db:reset": "tsx src/database/seed/reset.ts",
+    "logs:clean": "rm -rf logs/*",
+    "key:rotate": "tsx src/shared/utils/key-manager.ts rotate",
+    "key:list": "tsx src/shared/utils/key-manager.ts list",
+    "gen:grpc:v0": "bash scripts/grpc-stubv0.sh"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.9",
+    "@hono/node-ws": "^1.3.0",
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1",
+    "dotenv": "^17.2.3",
+    "drizzle-orm": "^0.45.1",
+    "hono": "^4.11.4",
+    "jose": "^6.1.3",
+    "module-alias": "^2.2.3",
+    "pg": "^8.17.1",
+    "redis": "^5.10.0",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@grpc/grpc-js": "^1.14.3",
+    "@grpc/proto-loader": "^0.8.0",
+    "@types/node": "^25.0.9",
+    "@types/pg": "^8.16.0",
+    "@typescript-eslint/eslint-plugin": "^8.53.0",
+    "@typescript-eslint/parser": "^8.53.0",
+    "@vitest/coverage-v8": "^4.0.17",
+    "concurrently": "^9.2.1",
+    "drizzle-kit": "^0.31.8",
+    "eslint": "^9.39.2",
+    "eslint-plugin-prettier": "^5.5.5",
+    "globals": "^17.0.0",
+    "grpc_tools_node_protoc_ts": "^5.3.3",
+    "grpc-tools": "^1.13.1",
+    "jiti": "^2.6.1",
+    "nodemon": "^3.1.11",
+    "npm-run-all": "^4.1.5",
+    "prettier": "^3.8.0",
+    "ts-proto": "^2.11.0",
+    "tsc-watch": "^7.2.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.53.0",
+    "vite-tsconfig-paths": "^6.0.4",
+    "vitest": "^4.0.17"
+  },
+  "overrides": {
+    "diff": "^8.0.3",
+    "esbuild": "^0.25.0",
+    "tar": "^7.5.3"
+  }
+}

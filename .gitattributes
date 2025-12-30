@@ -1,0 +1,11 @@
+CHANGELOG.md export-ignore
+.env.example linguist-vendored
+*.cjs linguist-vendored
+*.css linguist-vendored
+*.ejs linguist-vendored
+*.hbs linguist-vendored
+*.htm linguist-vendored
+*.html linguist-vendored
+*.json linguist-vendored
+*.mjs linguist-vendored
+* text=auto

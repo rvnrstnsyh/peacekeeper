@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package v0;
+
+service Public {
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message HealthRequest {
+  string payload = 1;
+}
+
+message HealthResponse {
+  string payload = 1;
+  string data = 2;
+}
+
+service ZeroAccess {
+  //
+}

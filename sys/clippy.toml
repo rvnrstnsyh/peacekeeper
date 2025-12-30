@@ -1,0 +1,17 @@
+# ===== General =====
+msrv = "1.92.0"
+avoid-breaking-exported-api = true
+
+# ===== Readability =====
+too-many-arguments-threshold = 7
+type-complexity-threshold = 300
+
+# ===== Performance =====
+too-many-lines-threshold = 120
+
+# ===== Safety =====
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+
+# ===== Naming =====
+enum-variant-name-threshold = 3

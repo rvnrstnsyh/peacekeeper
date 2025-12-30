@@ -1,0 +1,8 @@
+style_edition = "2024"
+newline_style = "Unix"
+max_width = 200
+tab_spaces = 2
+hard_tabs = false
+short_array_element_width_threshold = 20
+reorder_imports = false
+reorder_modules = false
