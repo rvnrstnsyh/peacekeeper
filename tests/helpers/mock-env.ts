@@ -51,7 +51,7 @@ export function setupTestEnv(): void {
   process.env.JWT_ACCESS_EXPIRES_IN = '1h'
   process.env.JWT_REFRESH_EXPIRES_IN = '7d'
   // Security
-  process.env.CORS_ORIGIN = '*'
+  process.env.CORS_ORIGIN = 'http://localhost,http://127.0.0.1'
   process.env.RATE_LIMIT_WINDOW_MS = '900000'
   process.env.RATE_LIMIT_MAX = '100'
   // Email
@@ -62,12 +62,12 @@ export function setupTestEnv(): void {
   delete process.env.SMTP_USER
   delete process.env.SMTP_PASSWORD
   // File Upload
-  process.env.UPLOAD_DIR = './uploads'
+  process.env.UPLOAD_DIR = 'uploads'
   process.env.MAX_FILE_SIZE = '5242880'
   process.env.ALLOWED_FILE_TYPES = 'image/jpeg,image/png,image/jpg,application/pdf'
   // Logging
   process.env.LOG_LEVEL = 'info'
-  process.env.LOG_DIR = './logs'
+  process.env.LOG_DIR = 'logs'
   process.env.LOG_TO_FILE = 'false'
   // External Services
   delete process.env.SENTRY_DSN

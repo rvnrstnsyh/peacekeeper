@@ -13,6 +13,7 @@
     "url": "git+https://github.com/rvnrstnsyh/peacekeeper.git"
   },
   "bugs": {
+    "email": "vanera@nvll.cloud",
     "url": "https://github.com/rvnrstnsyh/peacekeeper/issues"
   },
   "contributors": [],
@@ -33,10 +34,11 @@
     "prod:node": "node _dist/src/server.js",
     "prod:rust": "cargo run --release --manifest-path sys/Cargo.toml",
     "prod": "concurrently -k -n RUST,NODE \"npm run prod:rust\" \"npm run prod:node\"",
+    "live": "pm2 start ecosystem.config.cjs",
     "build:node": "tsc",
     "build:rust": "cargo build --release --manifest-path sys/Cargo.toml",
     "build": "npm-run-all build:rust build:node",
-    "lint": "npx eslint . --ext .ts --ignore-pattern \"_drizzle/**\"",
+    "lint": "eslint . --ext .ts --ignore-pattern \"_drizzle/**\"",
     "lint:fix": "eslint . --ext .ts --fix",
     "fmt": "prettier --write \"**/*.{js,ts,json,md,yml,yaml}\"",
     "fmt:check": "prettier --check \"**/*.{js,ts,json,md,yml,yaml}\"",

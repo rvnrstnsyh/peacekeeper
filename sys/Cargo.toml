@@ -1,6 +1,6 @@
 [package]
 name = "sys"
-authors = ["Rivane Rasetiansyah <re@nvll.me>"]
+authors = ["Rivane Rasetiansyah <vanera@nvll.cloud>"]
 repository = "git+https://github.com/rvnrstnsyh/peacekeeper.git"
 homepage = "https://github.com/rvnrstnsyh/peacekeeper"
 license = "Apache-2.0"

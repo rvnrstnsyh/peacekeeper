@@ -12,7 +12,7 @@ async function seed(): Promise<void> {
     const [admin]: Array<User> = await db
       .insert(users)
       .values({
-        email: 'admin@nvll.me',
+        email: 'admin@nvll.cloud',
         username: 'admin',
         firstName: 'System',
         lastName: 'Admin',
@@ -32,7 +32,7 @@ async function seed(): Promise<void> {
     const [user]: Array<User> = await db
       .insert(users)
       .values({
-        email: 'doe@nvll.me',
+        email: 'doe@nvll.cloud',
         username: 'johndoe',
         firstName: 'John',
         lastName: 'Doe',
@@ -50,7 +50,7 @@ async function seed(): Promise<void> {
 
     logger.info('Database seeding completed successfully')
     logger.info('\nDefault credentials:')
-    logger.info('   Email: admin@nvll.me')
+    logger.info('   Email: admin@nvll.cloud')
     logger.info('   Password: Admin@123\n')
 
     process.exit(0)

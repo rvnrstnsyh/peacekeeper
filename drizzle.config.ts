@@ -12,7 +12,7 @@ dotenv.config() // Fallback to .env
 export default {
   dialect: 'postgresql',
   out: '_drizzle',
-  schema: 'src/database/schema',
+  schema: 'src/database/schema.ts',
   dbCredentials: {
     host: String(process.env.DB_HOST) || 'localhost',
     port: Number(process.env.DB_PORT) || 5432,
