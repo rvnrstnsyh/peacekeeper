@@ -12,11 +12,11 @@ import type {
   KE3Serialized,
   RegistrationRecord,
   RegistrationRecordSerialized
-} from '@/shared/types/zero-access.types'
+} from '@/shared/types/zero-access.utils.types'
 
 import { Helpers } from '@/shared/utils/zero-access.utils/helpers'
 import { CONFIG } from '@/shared/constants/zero-access.constants'
-import { base64ToUint8Array, uint8ArrayToBase64 } from '@/shared/utils/common'
+import { base64ToUint8Array, uint8ArrayToBase64 } from '@/shared/utils/common.utils'
 
 export class Serializer {
   /**

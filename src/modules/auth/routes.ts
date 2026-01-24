@@ -15,7 +15,7 @@ import {
   signUpBetaSchema,
   updateProfileSchema,
   verifyEmailSchema
-} from '@/modules/auth/validators/auth.validator'
+} from '@/modules/auth/validators/auth.validators'
 
 const endpoint: Hono<Generics> = new Hono<Generics>()
 const controller: AuthController = new AuthController()

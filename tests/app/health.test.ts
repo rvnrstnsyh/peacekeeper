@@ -1,5 +1,5 @@
 import type { Hono } from 'hono'
-import type { RouteMetrics, VersionInfo } from '@/shared/core/router-factory.core'
+import type { RouteMetrics, VersionInfo } from '@/shared/types/router-factory.core.types'
 
 import { initialize } from '@/app'
 import { routerFactory } from '@/shared/core/router-factory.core'

@@ -1,22 +1,22 @@
-import httpResponse from '@/shared/utils/http-response'
+import httpResponse from '@/shared/utils/http-response.utils'
 
 import type { Next, Context } from 'hono'
-import type { ApiError } from '@/shared/types/http-response.types'
+import type { ApiError } from '@/shared/types/http-response.utils.types'
 
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { etag } from 'hono/etag'
 import { timeout } from 'hono/timeout'
 import { compress } from 'hono/compress'
-import { env } from '@/config/environment'
 import { requestId } from 'hono/request-id'
 import { poweredBy } from 'hono/powered-by'
 import { startTime, timing } from 'hono/timing'
+import { env } from '@/configs/environment.configs'
 import { secureHeaders } from 'hono/secure-headers'
 import { contextStorage } from 'hono/context-storage'
-import { allowedOrigins } from '@/shared/utils/common'
 import { trimTrailingSlash } from 'hono/trailing-slash'
 import { describe, it, expect, beforeEach } from 'vitest'
+import { allowedOrigins } from '@/shared/utils/common.utils'
 import { honoLogger } from '@/shared/middlewares/logger.middleware'
 
 describe('HTTP Response Utilities', (): void => {

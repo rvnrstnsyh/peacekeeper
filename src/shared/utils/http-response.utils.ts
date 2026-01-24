@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import type { ApiError, CustomHeaders, ErrorMeta, ErrorResponse, MetaBase, PaginationMeta, SuccessMeta, SuccessResponse } from '@/shared/types/http-response.types'
+import type { ApiError, CustomHeaders, ErrorMeta, ErrorResponse, MetaBase, PaginationMeta, SuccessMeta, SuccessResponse } from '@/shared/types/http-response.utils.types'
 
 /**
  * Comprehensive HTTP response module providing standardized

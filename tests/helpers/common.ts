@@ -1,4 +1,4 @@
-import type { SuccessResponse, ErrorResponse, ApiError } from '@/shared/types/http-response.types'
+import type { SuccessResponse, ErrorResponse, ApiError } from '@/shared/types/http-response.utils.types'
 
 import { expect } from 'vitest'
 

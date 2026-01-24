@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { logger } from '@/config/logger'
+import { logger } from '@/configs/logger.configs'
 import { db, getPool } from '@/database/connection'
 
 async function resetDatabase(): Promise<void> {

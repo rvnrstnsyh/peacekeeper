@@ -1,11 +1,11 @@
-import type { CleartextCredentials, CredentialRequest, CredentialResponse, Envelope, KE1, OpaqueConfig, RegistrationRecord } from '@/shared/types/zero-access.types'
+import type { CleartextCredentials, CredentialRequest, CredentialResponse, Envelope, KE1, OpaqueConfig, RegistrationRecord } from '@/shared/types/zero-access.utils.types'
 
 import { hmac } from '@noble/hashes/hmac.js'
 import { sha512 } from '@noble/hashes/sha2.js'
 import { argon2id } from '@noble/hashes/argon2.js'
 import { randomBytes } from '@noble/hashes/utils.js'
 import { expand, extract } from '@noble/hashes/hkdf.js'
-import { uint8ArrayToBase64 } from '@/shared/utils/common'
+import { uint8ArrayToBase64 } from '@/shared/utils/common.utils'
 import { CONFIG, LOW_ORDER_POINTS } from '@/shared/constants/zero-access.constants'
 import { ed25519, ristretto255, ristretto255_hasher, x25519 } from '@noble/curves/ed25519.js'
 

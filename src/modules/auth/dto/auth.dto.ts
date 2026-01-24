@@ -1,4 +1,4 @@
-import type { KE1Serialized, KE2, KE3Serialized, RegistrationRecordSerialized } from '@/shared/types/zero-access.types'
+import type { KE1Serialized, KE2, KE3Serialized, RegistrationRecordSerialized } from '@/shared/types/zero-access.utils.types'
 
 // ============================================================================
 // REQUEST DTOs - Data Transfer Objects for incoming requests

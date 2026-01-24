@@ -1,8 +1,8 @@
 import type { RedisClientType } from 'redis'
 
 import { createClient } from 'redis'
-import { logger } from '@/config/logger'
-import { env } from '@/config/environment'
+import { logger } from '@/configs/logger.configs'
+import { env } from '@/configs/environment.configs'
 
 interface CacheOptions {
   ttl?: number

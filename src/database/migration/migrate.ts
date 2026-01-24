@@ -1,5 +1,5 @@
-import { logger } from '@/config/logger'
 import { db } from '@/database/connection'
+import { logger } from '@/configs/logger.configs'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 
 async function runMigrations(): Promise<void> {

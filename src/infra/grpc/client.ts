@@ -1,4 +1,4 @@
-import logger from '@/config/logger'
+import logger from '@/configs/logger.configs'
 
 import type { Interceptor, InterceptorOptions, NextCall, Listener, Metadata, ClientOptions, ChannelCredentials } from '@grpc/grpc-js'
 

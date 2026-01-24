@@ -4,8 +4,8 @@ import type { PoolClient } from 'pg'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 
 import { Pool } from 'pg'
-import { logger } from '@/config/logger'
-import { env } from '@/config/environment'
+import { logger } from '@/configs/logger.configs'
+import { env } from '@/configs/environment.configs'
 import { drizzle } from 'drizzle-orm/node-postgres'
 
 const pool: Pool = new Pool({

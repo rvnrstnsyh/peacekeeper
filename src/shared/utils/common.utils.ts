@@ -1,4 +1,4 @@
-import { env } from '@/config/environment'
+import { env } from '@/configs/environment.configs'
 
 // ==================== ORIGIN & CORS VALIDATION ====================
 

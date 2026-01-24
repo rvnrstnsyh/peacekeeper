@@ -1,4 +1,4 @@
-import type { RouteModule, VersionConfig } from '@/shared/core/router-factory.core'
+import type { RouteModule, VersionConfig } from '@/shared/types/router-factory.core.types'
 
 export const v0Endpoint: VersionConfig = {
   version: 'v0',

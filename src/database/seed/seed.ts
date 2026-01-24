@@ -1,8 +1,8 @@
 import type { User } from '@/database/schema'
 
-import { logger } from '@/config/logger'
 import { users } from '@/database/schema'
 import { db } from '@/database/connection'
+import { logger } from '@/configs/logger.configs'
 
 async function seed(): Promise<void> {
   try {

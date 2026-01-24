@@ -1,9 +1,9 @@
-import env from '@/config/environment'
-import httpResponse from '@/shared/utils/http-response'
+import env from '@/configs/environment.configs'
+import httpResponse from '@/shared/utils/http-response.utils'
 
 import type { Context } from 'hono'
-import type { AccessTokenPayload } from '@/shared/types/jwt.types'
-import type { KE1, KE3, RegistrationRecord, RegistrationRequest, RegistrationResponse } from '@/shared/types/zero-access.types'
+import type { AccessTokenPayload } from '@/shared/types/jwt.utils.types'
+import type { KE1, KE3, RegistrationRecord, RegistrationRequest, RegistrationResponse } from '@/shared/types/zero-access.utils.types'
 import type {
   // Service DTOs
   ServiceRefreshTokenResultDTO,
@@ -26,12 +26,12 @@ import type {
 import { setCookie } from 'hono/cookie'
 import { decodeBase64 } from 'hono/utils/encode'
 import { randomBytes } from '@noble/hashes/utils.js'
-import { remoteAddr } from '@/shared/utils/remote-addr'
+import { remoteAddr } from '@/shared/utils/remote-addr.utils'
 import { ZeroAccess } from '@/shared/utils/zero-access.utils'
-import { AuthService } from '@/modules/auth/services/auth.service'
+import { AuthService } from '@/modules/auth/services/auth.services'
 import { Serializer } from '@/shared/utils/zero-access.utils/serializer'
-import { logAuth, logError, logger, logSecurity } from '@/config/logger'
-import { base64ToUint8Array, uint8ArrayToBase64 } from '@/shared/utils/common'
+import { logAuth, logError, logger, logSecurity } from '@/configs/logger.configs'
+import { base64ToUint8Array, uint8ArrayToBase64 } from '@/shared/utils/common.utils'
 
 /**
  * OPAQUE protocol instance for secure password authentication

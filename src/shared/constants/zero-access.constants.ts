@@ -1,4 +1,4 @@
-import type { OpaqueConfig } from '@/shared/types/zero-access.types'
+import type { OpaqueConfig } from '@/shared/types/zero-access.utils.types'
 
 export const CONFIG: OpaqueConfig = {
   hash: 'sha512',

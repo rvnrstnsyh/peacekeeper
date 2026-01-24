@@ -1,12 +1,12 @@
-import httpResponse from '@/shared/utils/http-response'
+import httpResponse from '@/shared/utils/http-response.utils'
 
 import type { RedisClientType } from 'redis'
 import type { Context, MiddlewareHandler, Next } from 'hono'
 
-import { logger } from '@/config/logger'
-import { redisClient } from '@/config/redis'
 import { createMiddleware } from 'hono/factory'
-import { remoteAddr } from '@/shared/utils/remote-addr'
+import { logger } from '@/configs/logger.configs'
+import { redisClient } from '@/configs/redis.configs'
+import { remoteAddr } from '@/shared/utils/remote-addr.utils'
 
 export interface RateLimitOptions {
   windowMs?: number // Time window in milliseconds (default: 15 minutes)

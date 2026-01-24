@@ -1,13 +1,13 @@
-import httpResponse from '@/shared/utils/http-response'
+import httpResponse from '@/shared/utils/http-response.utils'
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
-import type { AccessTokenPayload } from '@/shared/types/jwt.types'
+import type { AccessTokenPayload } from '@/shared/types/jwt.utils.types'
 
-import { redisClient } from '@/config/redis'
 import { createMiddleware } from 'hono/factory'
-import { verifyToken } from '@/shared/utils/jwt'
-import { logger, logSecurity } from '@/config/logger'
-import { remoteAddr } from '@/shared/utils/remote-addr'
+import { redisClient } from '@/configs/redis.configs'
+import { verifyToken } from '@/shared/utils/jwt.utils'
+import { remoteAddr } from '@/shared/utils/remote-addr.utils'
+import { logger, logSecurity } from '@/configs/logger.configs'
 
 /**
  * Authentication middleware options for configuring token verification behavior

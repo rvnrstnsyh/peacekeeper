@@ -1,25 +1,25 @@
 import type { User } from '@/modules/auth/models/users.model'
 import type { ZeroAccess } from '@/shared/utils/zero-access.utils'
-import type { BaseTokenPayload, RefreshTokenPayload, TokenPair } from '@/shared/types/jwt.types'
+import type { BaseTokenPayload, RefreshTokenPayload, TokenPair } from '@/shared/types/jwt.utils.types'
 import type { NewOpaqueEnvelope, OpaqueEnvelope } from '@/modules/auth/models/opaque_envelopes.model'
-import type { KE1, KE2, KE3, RegistrationRecord, RegistrationRequest, RegistrationResponse, ServerState } from '@/shared/types/zero-access.types'
+import type { KE1, KE2, KE3, RegistrationRecord, RegistrationRequest, RegistrationResponse, ServerState } from '@/shared/types/zero-access.utils.types'
 import type {
-  ServiceRefreshTokenResultDTO,
-  ServiceSignInAlphaResultDTO,
-  ServiceSignInBetaResultDTO,
   // Service DTOs
   ServiceSignUpBetaResultDTO,
+  ServiceSignInAlphaResultDTO,
+  ServiceSignInBetaResultDTO,
+  ServiceRefreshTokenResultDTO,
   ServiceUserProfileResultDTO,
   // Request DTOs
   SignUpBetaRequestDTO,
   UpdateProfileRequestDTO
 } from '@/modules/auth/dto/auth.dto'
 
-import { logger } from '@/config/logger'
-import { redisClient } from '@/config/redis'
+import { logger } from '@/configs/logger.configs'
+import { redisClient } from '@/configs/redis.configs'
 import { REDIS_KEYS, TTL } from '@/shared/constants/redis.constants'
 import { UserRepository } from '@/modules/auth/repositories/user.repository'
-import { base64ToUint8Array, uint8ArrayToBuffer } from '@/shared/utils/common'
+import { base64ToUint8Array, uint8ArrayToBuffer } from '@/shared/utils/common.utils'
 import { OpaqueEnvelopesRepository } from '@/modules/auth/repositories/opaque-envelopes.repository'
 import {
   createJwtTokenPair,
@@ -29,7 +29,7 @@ import {
   verifyEmailVerificationToken,
   verifyPasswordResetToken as _,
   verifyRefreshToken
-} from '@/shared/utils/jwt'
+} from '@/shared/utils/jwt.utils'
 
 /**
  * AuthService

@@ -1,11 +1,11 @@
-import httpResponse from '@/shared/utils/http-response'
+import httpResponse from '@/shared/utils/http-response.utils'
 
 import type { $ZodIssue } from 'zod/v4/core'
 import type { Context, MiddlewareHandler, Next } from 'hono'
 
 import { z, ZodError } from 'zod'
-import { logger } from '@/config/logger'
 import { createMiddleware } from 'hono/factory'
+import { logger } from '@/configs/logger.configs'
 
 type ValidationTarget = 'header' | 'body' | 'query' | 'params' | 'cookies'
 

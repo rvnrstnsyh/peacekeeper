@@ -4,7 +4,7 @@ import DailyRotateFile from 'winston-daily-rotate-file'
 
 import type { Logform, Logger } from 'winston'
 
-import { env } from '@/config/environment'
+import { env } from '@/configs/environment.configs'
 import { SENSITIVE_KEYS } from '@/shared/constants/common.constants'
 
 const levels: Record<string, number> = {
@@ -307,7 +307,7 @@ export const stream: { write: (message: string) => void } = {
   }
 }
 
-declare module './environment' {
+declare module '@/configs/environment.configs' {
   interface Environment {
     LOG_DIR?: string
     LOG_TO_FILE?: string

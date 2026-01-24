@@ -1,4 +1,4 @@
-import logger from '@/config/logger'
+import logger from '@/configs/logger.configs'
 
 import type { Context } from 'hono'
 import type { NodeWebSocket } from '@hono/node-ws'

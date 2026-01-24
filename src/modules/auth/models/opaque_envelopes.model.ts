@@ -1,13 +1,13 @@
 import type { Relations } from 'drizzle-orm'
 import type { PrimaryKeyBuilder } from 'drizzle-orm/pg-core'
-import type { RegistrationRecord } from '@/shared/types/zero-access.types'
+import type { RegistrationRecord } from '@/shared/types/zero-access.utils.types'
 
 import { relations } from 'drizzle-orm'
 import { users } from '@/modules/auth/models/users.model'
-import { bufferToUint8Array, uint8ArrayToBuffer } from '@/shared/utils/common'
+import { bufferToUint8Array, uint8ArrayToBuffer } from '@/shared/utils/common.utils'
 import { customType, foreignKey, integer, pgTable, primaryKey, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core'
 
-// Source - https://stackoverflow.com/
+// Source - https://stackoverflow.com
 // Posted by Ahmet Yazıcı
 // Retrieved 2025-12-09, License - CC BY-SA 4.0
 const bytea = customType<{ data: Buffer; notNull: false; default: false }>({

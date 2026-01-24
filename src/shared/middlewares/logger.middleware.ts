@@ -1,10 +1,10 @@
-import env from '@/config/environment'
+import env from '@/configs/environment.configs'
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
 
 import { createMiddleware } from 'hono/factory'
-import { logger, logRequest } from '@/config/logger'
-import { remoteAddr } from '@/shared/utils/remote-addr'
+import { logger, logRequest } from '@/configs/logger.configs'
+import { remoteAddr } from '@/shared/utils/remote-addr.utils'
 import { SENSITIVE_KEYS } from '@/shared/constants/common.constants'
 
 interface LoggerOptions {

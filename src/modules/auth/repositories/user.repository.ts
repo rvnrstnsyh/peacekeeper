@@ -2,8 +2,8 @@ import type { SQL } from 'drizzle-orm'
 import type { User } from '@/modules/auth/models/users.model'
 import type { SignUpBetaRequestDTO, UpdateProfileRequestDTO } from '@/modules/auth/dto/auth.dto'
 
-import { logger } from '@/config/logger'
 import { db } from '@/database/connection'
+import { logger } from '@/configs/logger.configs'
 import { users } from '@/modules/auth/models/users.model'
 import { and, count, desc, eq, isNull, sql } from 'drizzle-orm'
 

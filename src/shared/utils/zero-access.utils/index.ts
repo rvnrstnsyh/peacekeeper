@@ -14,12 +14,12 @@ import type {
   RegistrationRequest,
   RegistrationResponse,
   ServerState
-} from '@/shared/types/zero-access.types'
+} from '@/shared/types/zero-access.utils.types'
 
 import { hmac } from '@noble/hashes/hmac.js'
 import { sha512 } from '@noble/hashes/sha2.js'
 import { randomBytes } from '@noble/hashes/utils.js'
-import { uint8ArrayToBase64 } from '@/shared/utils/common'
+import { uint8ArrayToBase64 } from '@/shared/utils/common.utils'
 import { Helpers } from '@/shared/utils/zero-access.utils/helpers'
 import { CONFIG } from '@/shared/constants/zero-access.constants'
 

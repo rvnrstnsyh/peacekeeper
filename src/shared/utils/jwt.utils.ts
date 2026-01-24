@@ -1,11 +1,21 @@
 import { importJWK, jwtVerify, SignJWT } from 'jose'
 
 import type { JWTPayload, JWTVerifyResult } from 'jose'
-import type { AccessTokenPayload, BaseTokenPayload, EmailVerificationPayload, PasswordResetPayload, RefreshTokenPayload, TokenGenerationPayload, TokenPair, TokenUser } from '@/shared/types/jwt.types'
+import type { SigningKeyPair } from '@/shared/utils/key-manager.utils'
+import type {
+  AccessTokenPayload,
+  BaseTokenPayload,
+  EmailVerificationPayload,
+  PasswordResetPayload,
+  RefreshTokenPayload,
+  TokenGenerationPayload,
+  TokenPair,
+  TokenUser
+} from '@/shared/types/jwt.utils.types'
 
-import { logger } from '@/config/logger'
-import { env } from '@/config/environment'
-import { KeyManager, type SigningKeyPair } from '@/shared/utils/key-manager'
+import { logger } from '@/configs/logger.configs'
+import { env } from '@/configs/environment.configs'
+import { KeyManager } from '@/shared/utils/key-manager.utils'
 
 /**
  * KeyManager instance for signing and verification
