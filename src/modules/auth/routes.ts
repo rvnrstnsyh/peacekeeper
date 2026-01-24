@@ -33,7 +33,6 @@ endpoint
   .post('/forgot-password', validateBody(forgotPasswordSchema), controller.forgotPassword)
   // TODO .post('/reset-password/alpha', validateBody(resetPasswordSchema), controller.resetPassword)
   // TODO .post('/reset-password/beta/:reset-token', validateBody(resetPasswordSchema), controller.resetPassword)
-
   .get('/verify-email/:verify-email-token', validateParams(verifyEmailSchema), controller.verifyEmail)
   // Protected routes
   .post('/change-password/alpha', auth, validateBody(changePasswordAlphaSchema), controller.changePasswordAlpha)

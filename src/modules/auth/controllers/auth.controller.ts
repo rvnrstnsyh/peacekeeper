@@ -5,30 +5,31 @@ import type { Context } from 'hono'
 import type { AccessTokenPayload } from '@/shared/types/jwt.types'
 import type { KE1, KE3, RegistrationRecord, RegistrationRequest, RegistrationResponse } from '@/shared/types/zero-access.types'
 import type {
-  ChangePasswordAlphaRequestDTO,
-  ChangePasswordBetaRequestDTO,
-  ForgotPasswordRequestDTO,
-  RefreshTokenRequestDTO,
+  // Service DTOs
   ServiceRefreshTokenResultDTO,
   ServiceSignInAlphaResultDTO,
   ServiceSignInBetaResultDTO,
   ServiceSignUpBetaResultDTO,
-  // Service DTOs
   ServiceUserProfileResultDTO,
-  SignInAlphaRequestDTO,
-  SignInBetaRequestDTO,
   // Request DTOs
   SignUpAlphaRequestDTO,
   SignUpBetaRequestDTO,
+  SignInAlphaRequestDTO,
+  SignInBetaRequestDTO,
+  RefreshTokenRequestDTO,
+  ForgotPasswordRequestDTO,
+  ChangePasswordAlphaRequestDTO,
+  ChangePasswordBetaRequestDTO,
   UpdateProfileRequestDTO
 } from '@/modules/auth/dto/auth.dto'
 
-import { randomBytes } from 'crypto'
 import { setCookie } from 'hono/cookie'
 import { decodeBase64 } from 'hono/utils/encode'
-import { ZeroAccess } from '@/shared/utils/zero-access'
+import { randomBytes } from '@noble/hashes/utils.js'
 import { remoteAddr } from '@/shared/utils/remote-addr'
+import { ZeroAccess } from '@/shared/utils/zero-access.utils'
 import { AuthService } from '@/modules/auth/services/auth.service'
+import { Serializer } from '@/shared/utils/zero-access.utils/serializer'
 import { logAuth, logError, logger, logSecurity } from '@/config/logger'
 import { base64ToUint8Array, uint8ArrayToBase64 } from '@/shared/utils/common'
 
@@ -167,7 +168,7 @@ export class AuthController {
     try {
       const payload: SignUpBetaRequestDTO = ctx.get('validatedBody') as SignUpBetaRequestDTO
       const credentialIdentifier: Uint8Array = base64ToUint8Array(payload.credentialIdentifier)
-      const registrationRecord: RegistrationRecord = opaque.deserializeRegistrationRecord(payload.record)
+      const registrationRecord: RegistrationRecord = Serializer.deserializeRegistrationRecord(payload.record)
       const signUpResult: ServiceSignUpBetaResultDTO = await this.authService.signUpBeta(payload, registrationRecord, credentialIdentifier, env.OPAQUE_CONTEXT, ip, userAgent)
       const userId: string = signUpResult.user._id
 
@@ -239,14 +240,14 @@ export class AuthController {
 
     try {
       const payload: SignInAlphaRequestDTO = ctx.get('validatedBody') as SignInAlphaRequestDTO
-      const ke1: KE1 = opaque.deserializeKE1(payload.ke1)
+      const ke1: KE1 = Serializer.deserializeKE1(payload.ke1)
       const { ke2, credentialIdentifier }: ServiceSignInAlphaResultDTO = await this.authService.signInAlpha(payload.email, ke1, env.serverKeyPair, env.oprfSeed, opaque)
 
       logAuth('sign_in_alpha', credentialIdentifier, true, { ip })
 
       const signInAlphaResponse = {
         credentialIdentifier,
-        ke2: opaque.serializeKE2(ke2)
+        ke2: Serializer.serializeKE2(ke2)
       }
 
       return httpResponse.ok(ctx, 'Authentication initialized', undefined, signInAlphaResponse)
@@ -290,7 +291,7 @@ export class AuthController {
 
     try {
       const payload: SignInBetaRequestDTO = ctx.get('validatedBody') as SignInBetaRequestDTO
-      const ke3: KE3 = opaque.deserializeKE3(payload.ke3)
+      const ke3: KE3 = Serializer.deserializeKE3(payload.ke3)
       const signInResult: ServiceSignInBetaResultDTO = await this.authService.signInBeta(payload.credentialIdentifier, ke3, opaque, ip, userAgent)
       const userId: string = signInResult.user._id
 
@@ -546,7 +547,7 @@ export class AuthController {
       const userId: string = session._id
       const payload: ChangePasswordAlphaRequestDTO = ctx.get('validatedBody') as ChangePasswordAlphaRequestDTO
       // Deserialize KE1 for old password
-      const oldPasswordKE1: KE1 = opaque.deserializeKE1(payload.request.oldPasswordKE1)
+      const oldPasswordKE1: KE1 = Serializer.deserializeKE1(payload.request.oldPasswordKE1)
       // Deserialize registration request for new password
       const newPasswordRegistrationRequest: RegistrationRequest = {
         blindedMessage: base64ToUint8Array(payload.request.newPasswordRegistrationRequest.blindedMessage)
@@ -566,7 +567,7 @@ export class AuthController {
 
       const changePasswordAlphaResponse = {
         credentialIdentifier,
-        oldPasswordKE2: opaque.serializeKE2(ke2),
+        oldPasswordKE2: Serializer.serializeKE2(ke2),
         newPasswordRegistrationResponse: {
           evaluatedMessage: uint8ArrayToBase64(registrationResponse.evaluatedMessage),
           serverPublicKey: uint8ArrayToBase64(registrationResponse.serverPublicKey)
@@ -639,9 +640,9 @@ export class AuthController {
       const userId: string = session._id
       const payload: ChangePasswordBetaRequestDTO = ctx.get('validatedBody') as ChangePasswordBetaRequestDTO
       // Deserialize KE3 for old password verification
-      const ke3: KE3 = opaque.deserializeKE3(payload.ke3)
+      const ke3: KE3 = Serializer.deserializeKE3(payload.ke3)
       // Deserialize new registration record
-      const newRecord: RegistrationRecord = opaque.deserializeRegistrationRecord(payload.newRecord)
+      const newRecord: RegistrationRecord = Serializer.deserializeRegistrationRecord(payload.newRecord)
       // Complete password change through service
       const result = await this.authService.changePasswordBeta(userId, payload.credentialIdentifier, ke3, newRecord, opaque, env.OPAQUE_CONTEXT, ip, userAgent)
 

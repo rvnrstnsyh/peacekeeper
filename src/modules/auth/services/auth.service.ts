@@ -1,5 +1,5 @@
-import type { ZeroAccess } from '@/shared/utils/zero-access'
 import type { User } from '@/modules/auth/models/users.model'
+import type { ZeroAccess } from '@/shared/utils/zero-access.utils'
 import type { BaseTokenPayload, RefreshTokenPayload, TokenPair } from '@/shared/types/jwt.types'
 import type { NewOpaqueEnvelope, OpaqueEnvelope } from '@/modules/auth/models/opaque_envelopes.model'
 import type { KE1, KE2, KE3, RegistrationRecord, RegistrationRequest, RegistrationResponse, ServerState } from '@/shared/types/zero-access.types'
