@@ -1,15 +1,10 @@
 import db from '@/database/connection'
 
+import type { NewOpaqueEnvelope, OpaqueEnvelope, OpaqueEnvelopeUpdate } from '@/modules/auth/models/opaque_envelopes.model'
+
 import { and, eq, isNull } from 'drizzle-orm'
-import {
-  incrementFailedAttempts,
-  isEnvelopeLocked,
-  type NewOpaqueEnvelope,
-  type OpaqueEnvelope,
-  opaqueEnvelopes,
-  type OpaqueEnvelopeUpdate,
-  resetFailedAttempts
-} from '@/modules/auth/models/opaque_envelopes.model'
+
+import { incrementFailedAttempts, isEnvelopeLocked, opaqueEnvelopes, resetFailedAttempts } from '@/modules/auth/models/opaque_envelopes.model'
 
 export class OpaqueEnvelopesRepository {
   /**

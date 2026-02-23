@@ -80,7 +80,7 @@ export class Serializer {
 
       return { clientPublicKey, maskingKey, envelope }
     } catch (error) {
-      throw new Error(`Failed to deserialize RegistrationRecord: ${error}`)
+      throw new Error(`Failed to deserialize RegistrationRecord: ${error}`, { cause: error })
     }
   }
 
@@ -427,7 +427,7 @@ export class Serializer {
         newPasswordRegistrationRequest: { blindedMessage }
       }
     } catch (error) {
-      throw new Error(`Failed to deserialize ChangePasswordRequest: ${error}`)
+      throw new Error(`Failed to deserialize ChangePasswordRequest: ${error}`, { cause: error })
     }
   }
 
@@ -572,7 +572,7 @@ export class Serializer {
         }
       }
     } catch (error) {
-      throw new Error(`Failed to deserialize ChangePasswordResponse: ${error}`)
+      throw new Error(`Failed to deserialize ChangePasswordResponse: ${error}`, { cause: error })
     }
   }
 

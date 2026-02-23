@@ -97,7 +97,7 @@ export class Helpers {
         throw new Error('Invalid ristretto255 element: identity element')
       }
     } catch (error) {
-      throw new Error(`Invalid ristretto255 element: deserialization failed - ${error}`)
+      throw new Error(`Invalid ristretto255 element: deserialization failed - ${error}`, { cause: error })
     }
   }
 
@@ -236,7 +236,7 @@ export class Helpers {
         p: parallelism
       }).slice(0, outputLength)
     } catch (error) {
-      throw new Error(`MHF hardening failed: ${error}`)
+      throw new Error(`MHF hardening failed: ${error}`, { cause: error })
     }
   }
 
@@ -417,7 +417,7 @@ export class Helpers {
 
       return sharedSecret
     } catch (error) {
-      throw new Error(`DH operation failed: ${error}`)
+      throw new Error(`DH operation failed: ${error}`, { cause: error })
     }
   }
 

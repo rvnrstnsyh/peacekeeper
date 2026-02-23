@@ -27,7 +27,7 @@ export class UserRepository {
       return user || null
     } catch (error: unknown) {
       logger.error('Error finding user by ID', { error, userId })
-      throw new Error('Failed to find user')
+      throw new Error('Failed to find user', { cause: error })
     }
   }
 
@@ -45,7 +45,7 @@ export class UserRepository {
       return user || null
     } catch (error: unknown) {
       logger.error('Error finding user by email', { error, email })
-      throw new Error('Failed to find user')
+      throw new Error('Failed to find user', { cause: error })
     }
   }
 
@@ -68,7 +68,7 @@ export class UserRepository {
       return user
     } catch (error: unknown) {
       logger.error('Error creating user', { error })
-      throw new Error('Failed to create user')
+      throw new Error('Failed to create user', { cause: error })
     }
   }
 
@@ -89,7 +89,7 @@ export class UserRepository {
       return user || null
     } catch (error: unknown) {
       logger.error('Error updating user', { error, userId })
-      throw new Error('Failed to update user')
+      throw new Error('Failed to update user', { cause: error })
     }
   }
 
@@ -132,7 +132,7 @@ export class UserRepository {
         .where(and(eq(users._id, userId), isNull(users.deletedAt)))
     } catch (error: unknown) {
       logger.error('Error verifying email', { error, userId })
-      throw new Error('Failed to verify email')
+      throw new Error('Failed to verify email', { cause: error })
     }
   }
 
@@ -150,7 +150,7 @@ export class UserRepository {
         .where(and(eq(users._id, userId), isNull(users.deletedAt)))
     } catch (error: unknown) {
       logger.error('Error deactivating user', { error, userId })
-      throw new Error('Failed to deactivate user')
+      throw new Error('Failed to deactivate user', { cause: error })
     }
   }
 
@@ -168,7 +168,7 @@ export class UserRepository {
         .where(and(eq(users._id, userId), isNull(users.deletedAt)))
     } catch (error: unknown) {
       logger.error('Error activating user', { error, userId })
-      throw new Error('Failed to activate user')
+      throw new Error('Failed to activate user', { cause: error })
     }
   }
 
@@ -186,7 +186,7 @@ export class UserRepository {
         .where(eq(users._id, userId))
     } catch (error: unknown) {
       logger.error('Error deleting user', { error, userId })
-      throw new Error('Failed to delete user')
+      throw new Error('Failed to delete user', { cause: error })
     }
   }
 
@@ -198,7 +198,7 @@ export class UserRepository {
       await db.delete(users).where(eq(users._id, userId))
     } catch (error: unknown) {
       logger.error('Error permanently deleting user', { error, userId })
-      throw new Error('Failed to permanently delete user')
+      throw new Error('Failed to permanently delete user', { cause: error })
     }
   }
 
@@ -242,7 +242,7 @@ export class UserRepository {
       }
     } catch (error: unknown) {
       logger.error('Error finding all users', { error })
-      throw new Error('Failed to fetch users')
+      throw new Error('Failed to fetch users', { cause: error })
     }
   }
 
@@ -259,7 +259,7 @@ export class UserRepository {
       return Number(total)
     } catch (error: unknown) {
       logger.error('Error counting users by role', { error, role })
-      throw new Error('Failed to count users')
+      throw new Error('Failed to count users', { cause: error })
     }
   }
 
@@ -272,7 +272,7 @@ export class UserRepository {
       return user !== null
     } catch (error: unknown) {
       logger.error('Error checking email existence', { error, email })
-      throw new Error('Failed to check email')
+      throw new Error('Failed to check email', { cause: error })
     }
   }
 
@@ -288,7 +288,7 @@ export class UserRepository {
         .orderBy(desc(users.createdAt))
     } catch (error: unknown) {
       logger.error('Error finding active users', { error })
-      throw new Error('Failed to find active users')
+      throw new Error('Failed to find active users', { cause: error })
     }
   }
 
@@ -304,7 +304,7 @@ export class UserRepository {
         .orderBy(desc(users.createdAt))
     } catch (error: unknown) {
       logger.error('Error finding users by role', { error, role })
-      throw new Error('Failed to find users by role')
+      throw new Error('Failed to find users by role', { cause: error })
     }
   }
 
@@ -320,7 +320,7 @@ export class UserRepository {
         .orderBy(desc(users.createdAt))
     } catch (error: unknown) {
       logger.error('Error finding verified users', { error })
-      throw new Error('Failed to find verified users')
+      throw new Error('Failed to find verified users', { cause: error })
     }
   }
 
@@ -345,7 +345,7 @@ export class UserRepository {
         .limit(10)
     } catch (error: unknown) {
       logger.error('Error searching users', { error, query })
-      throw new Error('Failed to search users')
+      throw new Error('Failed to search users', { cause: error })
     }
   }
 }

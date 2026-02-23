@@ -295,7 +295,7 @@ export class AuthService {
       user = await this.userRepository.create(payload)
     } catch (error: unknown) {
       logger.error('Failed to create user', { error, email: payload.email })
-      throw new Error('Failed to create user account')
+      throw new Error('Failed to create user account', { cause: error })
     }
 
     const userId: string = user._id
@@ -332,7 +332,7 @@ export class AuthService {
           error: rollbackError
         })
       }
-      throw new Error('Failed to complete registration')
+      throw new Error('Failed to complete registration', { cause: envelopeError })
     }
 
     // Generate and store verification token (non-blocking)

@@ -102,7 +102,7 @@ export async function generateAccessToken(payload: TokenGenerationPayload): Prom
     return token
   } catch (error: unknown) {
     logger.error('Error generating access token', { error })
-    throw new Error('Failed to generate access token')
+    throw new Error('Failed to generate access token', { cause: error })
   }
 }
 
@@ -147,7 +147,7 @@ export async function generateRefreshToken(payload: TokenGenerationPayload): Pro
     return token
   } catch (error: unknown) {
     logger.error('Error generating refresh token', { error })
-    throw new Error('Failed to generate refresh token')
+    throw new Error('Failed to generate refresh token', { cause: error })
   }
 }
 
@@ -254,14 +254,14 @@ export async function verifyToken(token: string): Promise<AccessTokenPayload> {
   } catch (error: unknown) {
     if (error instanceof Error) {
       if (error.message.includes('expired')) {
-        throw new Error('Token has expired')
+        throw new Error('Token has expired', { cause: error })
       }
       if (error.message.includes('signature')) {
-        throw new Error('Invalid token signature')
+        throw new Error('Invalid token signature', { cause: error })
       }
-      throw new Error(error.message)
+      throw new Error(error.message, { cause: error })
     }
-    throw new Error('Token verification failed')
+    throw new Error('Token verification failed', { cause: error })
   }
 }
 
@@ -296,14 +296,14 @@ export async function verifyRefreshToken(token: string): Promise<RefreshTokenPay
   } catch (error: unknown) {
     if (error instanceof Error) {
       if (error.message.includes('expired')) {
-        throw new Error('Refresh token has expired')
+        throw new Error('Refresh token has expired', { cause: error })
       }
       if (error.message.includes('signature')) {
-        throw new Error('Invalid refresh token signature')
+        throw new Error('Invalid refresh token signature', { cause: error })
       }
-      throw new Error(error.message)
+      throw new Error(error.message, { cause: error })
     }
-    throw new Error('Refresh token verification failed')
+    throw new Error('Refresh token verification failed', { cause: error })
   }
 }
 
@@ -406,7 +406,7 @@ export async function generateEmailVerificationToken(userId: string, email: stri
     return token
   } catch (error: unknown) {
     logger.error('Error generating email verification token', { error })
-    throw new Error('Failed to generate email verification token')
+    throw new Error('Failed to generate email verification token', { cause: error })
   }
 }
 
@@ -443,11 +443,11 @@ export async function verifyEmailVerificationToken(token: string): Promise<{ use
   } catch (error: unknown) {
     if (error instanceof Error) {
       if (error.message.includes('expired')) {
-        throw new Error('Verification token has expired')
+        throw new Error('Verification token has expired', { cause: error })
       }
-      throw new Error(error.message)
+      throw new Error(error.message, { cause: error })
     }
-    throw new Error('Token verification failed')
+    throw new Error('Token verification failed', { cause: error })
   }
 }
 
@@ -486,7 +486,7 @@ export async function generatePasswordResetToken(userId: string, email: string):
     return token
   } catch (error: unknown) {
     logger.error('Error generating password reset token', { error })
-    throw new Error('Failed to generate password reset token')
+    throw new Error('Failed to generate password reset token', { cause: error })
   }
 }
 
@@ -523,10 +523,10 @@ export async function verifyPasswordResetToken(token: string): Promise<{ userId:
   } catch (error: unknown) {
     if (error instanceof Error) {
       if (error.message.includes('expired')) {
-        throw new Error('Reset token has expired')
+        throw new Error('Reset token has expired', { cause: error })
       }
-      throw new Error(error.message)
+      throw new Error(error.message, { cause: error })
     }
-    throw new Error('Token verification failed')
+    throw new Error('Token verification failed', { cause: error })
   }
 }
