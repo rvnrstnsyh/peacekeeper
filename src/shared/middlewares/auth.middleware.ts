@@ -4,10 +4,10 @@ import type { Context, MiddlewareHandler, Next } from 'hono'
 import type { AccessTokenPayload } from '@/shared/types/jwt.utils.types'
 
 import { createMiddleware } from 'hono/factory'
-import { redisClient } from '@/configs/redis.configs'
 import { verifyToken } from '@/shared/utils/jwt.utils'
 import { remoteAddr } from '@/shared/utils/remote-addr.utils'
 import { logger, logSecurity } from '@/configs/logger.configs'
+import { sessionStore } from '@/shared/utils/session-store.utils'
 
 /**
  * Authentication middleware options for configuring token verification behavior
@@ -62,16 +62,12 @@ function extractToken(ctx: Context<Generics>): string | null {
  * - Tokens added to blacklist during signOut with TTL matching token expiration
  */
 async function isTokenBlacklisted(token: string): Promise<boolean> {
-  if (!redisClient || !redisClient.isOpen) {
-    return false // Skip check if Redis unavailable
-  }
-
   try {
-    const blacklisted: string | null = await redisClient.get(`blacklist:${token}`)
+    const blacklisted: string | null = await sessionStore.get(`blacklist:${token}`)
     return blacklisted !== null
   } catch (error: unknown) {
     logger.error('Error checking token blacklist', { error })
-    return false // Allow request if Redis check fails
+    return false
   }
 }
 
@@ -218,7 +214,7 @@ export function authentication(options: AuthOptions = {}): MiddlewareHandler {
  * - Requests without tokens proceed normally (no 401 error)
  * - Valid tokens are still verified and user context is set
  * - Blacklist checking is enabled for signed-out tokens
- * - Downstream handlers should check if ctx.user exists
+ * - Downstream handlers should check if ctx.get('session') is defined
  * @example
  * // Allow viewing posts without login, but show author details if logged in
  * app.use('/api/posts/*', optionalAuth)

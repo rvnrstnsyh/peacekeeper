@@ -26,10 +26,9 @@ export interface SignUpBetaRequestDTO {
   record: RegistrationRecordSerialized
   email: string
   username: string
-  firstName: string
-  lastName: string
+  firstName?: string
+  lastName?: string
   phone?: string
-  role: 'admin' | 'user'
   dateOfBirth?: string
   gender?: 'male' | 'female'
   address?: string
@@ -41,6 +40,7 @@ export interface SignUpBetaRequestDTO {
 export interface SignInAlphaRequestDTO {
   email: string
   ke1: KE1Serialized
+  rememberMe: boolean
 }
 
 /**
@@ -123,12 +123,9 @@ export interface UpdateProfileRequestDTO {
 
 /**
  * Resend Verification Email request
- * No body needed - uses authenticated user from context
+ * No body needed - user ID comes from authenticated session context
  */
-export interface ResendVerificationRequestDTO {
-  // TODO Empty - user ID comes from auth context
-  dump: string
-}
+export type ResendVerificationRequestDTO = Record<never, never>
 
 // ============================================================================
 // RESPONSE DTOs - Data Transfer Objects for outgoing responses
@@ -331,6 +328,7 @@ export interface ServiceSignInAlphaResultDTO {
 export interface ServiceSignInBetaResultDTO {
   user: ServiceUserProfileResultDTO
   tokens: ServiceAuthTokensDTO
+  rememberMe: boolean
 }
 
 /**

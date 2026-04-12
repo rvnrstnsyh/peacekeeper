@@ -71,7 +71,7 @@ export function validateRequest(schema: z.Schema, target: ValidationTarget = 'bo
       const validated: unknown = schema.parse(data)
       // Store validated data in context
       const validatedKeyMap = {
-        headers: 'validatedHeaders',
+        header: 'validatedHeaders',
         body: 'validatedBody',
         query: 'validatedQuery',
         params: 'validatedParams',

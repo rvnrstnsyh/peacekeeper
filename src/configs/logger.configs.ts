@@ -35,17 +35,19 @@ function sanitizeSensitiveData(obj: unknown): unknown {
     return obj.map((item) => sanitizeSensitiveData(item))
   }
 
+  if (!env.isProduction) {
+    return obj
+  }
+
   const sanitized: LogMetadata = {}
 
-  if (env.isProduction) {
-    for (const [key, value] of Object.entries(obj as LogMetadata)) {
-      if (SENSITIVE_KEYS.some((sensitive: string): boolean => key.toLowerCase().includes(sensitive))) {
-        sanitized[key] = '[REDACTED]'
-      } else if (typeof value === 'object' && value !== null) {
-        sanitized[key] = sanitizeSensitiveData(value)
-      } else {
-        sanitized[key] = value
-      }
+  for (const [key, value] of Object.entries(obj as LogMetadata)) {
+    if (SENSITIVE_KEYS.some((sensitive: string): boolean => key.toLowerCase().includes(sensitive))) {
+      sanitized[key] = '[REDACTED]'
+    } else if (typeof value === 'object' && value !== null) {
+      sanitized[key] = sanitizeSensitiveData(value)
+    } else {
+      sanitized[key] = value
     }
   }
   return sanitized
@@ -306,12 +308,3 @@ export const stream: { write: (message: string) => void } = {
     logger.http(message.trim())
   }
 }
-
-declare module '@/configs/environment.configs' {
-  interface Environment {
-    LOG_DIR?: string
-    LOG_TO_FILE?: string
-  }
-}
-
-export default logger

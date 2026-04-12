@@ -4,5 +4,5 @@
  */
 
 export * from '@/modules/auth/models/users.model'
-export * from '@/modules/auth/models/api_keys.model'
-export * from '@/modules/auth/models/opaque_envelopes.model'
+export * from '@/modules/auth/models/api-keys.model'
+export * from '@/modules/auth/models/opaque-envelopes.model'

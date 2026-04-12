@@ -1,7 +1,7 @@
-import logger from '@/configs/logger.configs'
-
 import type { Context, Hono, Next } from 'hono'
 import type { RouteConfig, RouteMetrics, RouteModule, VersionConfig, VersionInfo } from '@/shared/types/router-factory.core.types'
+
+import { logger } from '@/configs/logger.configs'
 
 export class RouterFactory {
   private versions: Map<string, VersionConfig> = new Map()

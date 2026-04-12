@@ -1,7 +1,6 @@
-import logger from '@/configs/logger.configs'
-
 import type { Interceptor, InterceptorOptions, NextCall, Listener, Metadata, ClientOptions, ChannelCredentials } from '@grpc/grpc-js'
 
+import { logger } from '@/configs/logger.configs'
 import { credentials, InterceptingCall } from '@grpc/grpc-js'
 import { PublicService } from '@/infra/grpc/services/public.service'
 import { ZeroAccessService } from '@/infra/grpc/services/zero-access.service'

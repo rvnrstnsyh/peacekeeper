@@ -15,5 +15,5 @@ export const REDIS_KEYS = {
 export const TTL = {
   OPAQUE_STATE: 300, // 5 minutes - short-lived authentication session state
   VERIFICATION_TOKEN: 86400, // 24 hours - email verification validity period
-  REFRESH_TOKEN: 604800 // 7 days - refresh token session duration
+  REFRESH_TOKEN: 604800 // 7 days - default (unused directly; sign-in uses env.sessionTTL / env.sessionRememberMeTTL)
 } as const

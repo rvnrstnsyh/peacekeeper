@@ -1,4 +1,4 @@
-import users from '@/modules/auth/models/users.model'
+import { users } from '@/modules/auth/models/users.model'
 
 import type { Relations } from 'drizzle-orm'
 import type { PgEnum, PrimaryKeyBuilder } from 'drizzle-orm/pg-core'

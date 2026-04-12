@@ -1,4 +1,4 @@
-export const SENSITIVE_KEYS: Array<string> = [
+export const SENSITIVE_KEYS: ReadonlyArray<string> = [
   'identity',
   'identifier',
   'blindedMessage',
@@ -13,4 +13,4 @@ export const SENSITIVE_KEYS: Array<string> = [
   'secret',
   'apikey',
   'api_key'
-] as const
+]

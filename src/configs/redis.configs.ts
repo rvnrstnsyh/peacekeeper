@@ -33,16 +33,16 @@ let lastReconnectAttempt = 0
  */
 function getRedisConfig(): RedisConfig {
   return {
-    enabled: env.REDIS_ENABLED ?? true,
-    host: env.REDIS_HOST || 'localhost',
-    port: env.REDIS_PORT || 6379,
+    enabled: env.REDIS_ENABLED,
+    host: env.REDIS_HOST,
+    port: env.REDIS_PORT,
     password: env.REDIS_PASSWORD,
-    db: env.REDIS_DB || 0,
-    ttl: env.REDIS_TTL || 3600,
-    maxRetries: env.REDIS_MAX_RETRIES || 3,
-    retryDelay: env.REDIS_RETRY_DELAY || 1000,
-    connectionTimeout: env.REDIS_CONNECTION_TIMEOUT || 10000,
-    enableOfflineQueue: env.REDIS_ENABLE_OFFLINE_QUEUE ?? false
+    db: env.REDIS_DB,
+    ttl: env.REDIS_TTL,
+    maxRetries: env.REDIS_MAX_RETRIES,
+    retryDelay: env.REDIS_RETRY_DELAY,
+    connectionTimeout: env.REDIS_CONNECTION_TIMEOUT,
+    enableOfflineQueue: env.REDIS_ENABLE_OFFLINE_QUEUE
   }
 }
 

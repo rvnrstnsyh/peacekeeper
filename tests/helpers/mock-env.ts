@@ -48,8 +48,11 @@ export function setupTestEnv(): void {
   process.env.OPAQUE_SERVER_PUBLIC_KEY = base64Bytes(32)
   process.env.OPAQUE_CONTEXT = 'OPAQUE-RFC9807-ristretto255-SHA512'
   // JWT
-  process.env.JWT_ACCESS_EXPIRES_IN = '1h'
-  process.env.JWT_REFRESH_EXPIRES_IN = '7d'
+  process.env.JWT_ACCESS_EXPIRES_IN = '3m'
+  process.env.JWT_REFRESH_EXPIRES_IN = '24h'
+  // Session TTL
+  process.env.SESSION_REMEMBER_ME_TTL = '30d'
+  process.env.SESSION_TTL = '24h'
   // Security
   process.env.CORS_ORIGIN = 'http://localhost,http://127.0.0.1'
   process.env.RATE_LIMIT_WINDOW_MS = '900000'

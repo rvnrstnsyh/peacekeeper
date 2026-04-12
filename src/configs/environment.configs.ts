@@ -23,21 +23,33 @@ function mustBeByteLength(bytes: number) {
   }, `Value must be base64 representing exactly ${bytes} bytes`)
 }
 
+function parseDurationSeconds(duration: string): number {
+  const match: RegExpMatchArray | null = duration.match(/^(\d+)([smhd])$/)
+  if (!match) {
+    const seconds: number = parseInt(duration, 10)
+    return isNaN(seconds) ? 86400 : seconds
+  }
+  const value: number = parseInt(match[1], 10)
+  const unit: string = match[2]
+  const multipliers: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 }
+  return value * (multipliers[unit] ?? 1)
+}
+
 const schema = z.object({
   // Core
   NODE_ENV: z.enum(['development', 'production', 'test', 'staging']).default('development'),
 
   // Application
   APP_HOSTNAME: z.string().default('localhost'),
-  APP_PORT: z.string().transform(Number).pipe(z.number().min(1).max(65535)).default(3000),
+  APP_PORT: z.string().transform(Number).pipe(z.number().min(1).max(65535)).default(14410),
   APP_NAME: z.string().default('peacekeeper'),
   APP_VERSION: z.string().default('0.1.0'),
-  APP_URL: z.url().default('http://localhost:3000'),
+  APP_URL: z.url().default('http://localhost:14410'),
 
   // gRPC
   GRPC_HOSTNAME: z.string().default('localhost'),
   GRPC_PORT: z.string().transform(Number).pipe(z.number().min(1).max(65535)).default(50051),
-  GRPC_TIMEOUT: z.transform(Number).pipe(z.number()).default(3000),
+  GRPC_TIMEOUT: z.string().transform(Number).pipe(z.number()).default(3000),
   GRPC_ACCESS_TOKEN: mustBeByteLength(32),
 
   // Database
@@ -53,8 +65,8 @@ const schema = z.object({
     .default(false),
   DB_POOL_MIN: z.string().transform(Number).pipe(z.number().min(0)).default(2),
   DB_POOL_MAX: z.string().transform(Number).pipe(z.number().min(1)).default(10),
-  DB_CONNECTION_TIMEOUT_MILLIS: z.transform(Number).pipe(z.number()).default(10000),
-  DB_IDLE_TIMEOUT_MILLIS: z.transform(Number).pipe(z.number()).default(30000),
+  DB_CONNECTION_TIMEOUT_MILLIS: z.string().transform(Number).pipe(z.number()).default(10000),
+  DB_IDLE_TIMEOUT_MILLIS: z.string().transform(Number).pipe(z.number()).default(30000),
   DB_SYNC: z
     .string()
     .transform((value: string): boolean => value === 'true')
@@ -89,8 +101,12 @@ const schema = z.object({
   OPAQUE_CONTEXT: z.string().default('OPAQUE-RFC9807-ristretto255-SHA512'),
 
   // JWT
-  JWT_ACCESS_EXPIRES_IN: z.string().default('1h'),
-  JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
+  JWT_ACCESS_EXPIRES_IN: z.string().default('3m'),
+  JWT_REFRESH_EXPIRES_IN: z.string().default('24h'),
+
+  // Session TTL (supports: s, m, h, d — e.g. '24h', '30d')
+  SESSION_REMEMBER_ME_TTL: z.string().default('30d'),
+  SESSION_TTL: z.string().default('24h'),
 
   // Security
   CORS_ORIGIN: z.string().default('*'),
@@ -231,6 +247,14 @@ export const env = {
       privateKey: Buffer.from(environmentSchema.OPAQUE_SERVER_PRIVATE_KEY, 'base64'),
       publicKey: Buffer.from(environmentSchema.OPAQUE_SERVER_PUBLIC_KEY, 'base64')
     }
+  },
+
+  get sessionRememberMeTTL(): number {
+    return parseDurationSeconds(environmentSchema.SESSION_REMEMBER_ME_TTL)
+  },
+
+  get sessionTTL(): number {
+    return parseDurationSeconds(environmentSchema.SESSION_TTL)
   }
 }
 
@@ -253,5 +277,3 @@ export function validateConfig(): void {
     process.exit(1)
   }
 }
-
-export default env

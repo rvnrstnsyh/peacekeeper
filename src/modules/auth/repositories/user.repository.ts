@@ -52,14 +52,20 @@ export class UserRepository {
   /**
    * Create new user
    */
-  async create(data: SignUpBetaRequestDTO): Promise<User> {
+  async create(data: SignUpBetaRequestDTO & { role: 'admin' | 'user' }): Promise<User> {
     try {
       const [user]: Array<User> = await db
         .insert(users)
         .values({
-          ...data,
           email: data.email.toLowerCase(),
-          username: data.email.split('@')[0],
+          username: data.username,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phone: data.phone,
+          role: data.role,
+          dateOfBirth: data.dateOfBirth,
+          gender: data.gender,
+          address: data.address,
           createdAt: new Date(),
           updatedAt: new Date()
         })
@@ -243,6 +249,19 @@ export class UserRepository {
     } catch (error: unknown) {
       logger.error('Error finding all users', { error })
       throw new Error('Failed to fetch users', { cause: error })
+    }
+  }
+
+  /**
+   * Count all non-deleted users
+   */
+  async countAll(): Promise<number> {
+    try {
+      const [{ value: total }] = await db.select({ value: count() }).from(users).where(isNull(users.deletedAt))
+      return Number(total)
+    } catch (error: unknown) {
+      logger.error('Error counting all users', { error })
+      throw new Error('Failed to count users', { cause: error })
     }
   }
 

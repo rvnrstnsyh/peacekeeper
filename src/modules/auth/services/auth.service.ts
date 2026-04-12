@@ -1,7 +1,7 @@
 import type { User } from '@/modules/auth/models/users.model'
 import type { ZeroAccess } from '@/shared/utils/zero-access.utils'
 import type { BaseTokenPayload, RefreshTokenPayload, TokenPair } from '@/shared/types/jwt.utils.types'
-import type { NewOpaqueEnvelope, OpaqueEnvelope } from '@/modules/auth/models/opaque_envelopes.model'
+import type { NewOpaqueEnvelope, OpaqueEnvelope } from '@/modules/auth/models/opaque-envelopes.model'
 import type { KE1, KE2, KE3, RegistrationRecord, RegistrationRequest, RegistrationResponse, ServerState } from '@/shared/types/zero-access.utils.types'
 import type {
   // Service DTOs
@@ -16,7 +16,8 @@ import type {
 } from '@/modules/auth/dto/auth.dto'
 
 import { logger } from '@/configs/logger.configs'
-import { redisClient } from '@/configs/redis.configs'
+import { env } from '@/configs/environment.configs'
+import { sessionStore } from '@/shared/utils/session-store.utils'
 import { REDIS_KEYS, TTL } from '@/shared/constants/redis.constants'
 import { UserRepository } from '@/modules/auth/repositories/user.repository'
 import { base64ToUint8Array, uint8ArrayToBuffer } from '@/shared/utils/common.utils'
@@ -67,16 +68,9 @@ export class AuthService {
    * @private
    */
   private async generateVerificationToken(userId: string, email: string): Promise<void> {
-    if (!redisClient?.isOpen) {
-      logger.warning('Redis not available - verification token not stored')
-      return
-    }
-
     try {
       const token: string = await generateEmailVerificationToken(userId, email)
-      await redisClient.set(REDIS_KEYS.VERIFICATION_TOKEN(userId), token, {
-        EX: TTL.VERIFICATION_TOKEN
-      })
+      await sessionStore.set(REDIS_KEYS.VERIFICATION_TOKEN(userId), token, TTL.VERIFICATION_TOKEN)
 
       // TODO: Send verification email
       // await emailService.sendVerificationEmail(email, token)
@@ -112,18 +106,12 @@ export class AuthService {
       userId: string
       expectedClientMac: string
       sessionKey: string
+      rememberMe: boolean
       timestamp: number
     }
   ): Promise<void> {
-    if (!redisClient?.isOpen) {
-      throw new Error('Redis not available - cannot store authentication state')
-    }
-
     const stateKey: string = REDIS_KEYS.OPAQUE_STATE(credentialIdentifier)
-    const stateData: string = JSON.stringify(state)
-
-    await redisClient.set(stateKey, stateData, { EX: TTL.OPAQUE_STATE })
-
+    await sessionStore.set(stateKey, JSON.stringify(state), TTL.OPAQUE_STATE)
     logger.debug('OPAQUE state stored', {
       credentialIdentifier,
       expiresIn: `${TTL.OPAQUE_STATE}s`
@@ -149,19 +137,13 @@ export class AuthService {
     userId: string
     expectedClientMac: string
     sessionKey: string
+    rememberMe: boolean
     timestamp: number
   } | null> {
-    if (!redisClient?.isOpen) {
-      throw new Error('Redis not available - cannot retrieve authentication state')
-    }
-
     const stateKey: string = REDIS_KEYS.OPAQUE_STATE(credentialIdentifier)
-    const stateData: string | null = await redisClient.get(stateKey)
-
-    if (!stateData) {
-      return null
-    }
-    return JSON.parse(stateData)
+    const stateData: string | null = await sessionStore.get(stateKey)
+    if (!stateData) return null
+    return JSON.parse(stateData) as { userId: string; expectedClientMac: string; sessionKey: string; rememberMe: boolean; timestamp: number }
   }
 
   /**
@@ -178,10 +160,7 @@ export class AuthService {
    * @private
    */
   private async deleteOpaqueState(credentialIdentifier: string): Promise<void> {
-    if (!redisClient?.isOpen) {
-      return
-    }
-    await redisClient.del(REDIS_KEYS.OPAQUE_STATE(credentialIdentifier))
+    await sessionStore.del(REDIS_KEYS.OPAQUE_STATE(credentialIdentifier))
   }
 
   /**
@@ -199,14 +178,8 @@ export class AuthService {
    * - Automatically overwritten on new token generation
    * @private
    */
-  private async storeRefreshToken(userId: string, token: string): Promise<void> {
-    if (!redisClient?.isOpen) {
-      logger.warning('Redis not available - refresh token not stored')
-      return
-    }
-    await redisClient.set(REDIS_KEYS.REFRESH_TOKEN(userId), token, {
-      EX: TTL.REFRESH_TOKEN
-    })
+  private async storeRefreshToken(userId: string, token: string, ttl: number = TTL.REFRESH_TOKEN): Promise<void> {
+    await sessionStore.set(REDIS_KEYS.REFRESH_TOKEN(userId), token, ttl)
   }
 
   /**
@@ -290,9 +263,12 @@ export class AuthService {
       throw new Error('Credential identifier already exists')
     }
 
+    const totalUsers: number = await this.userRepository.countAll()
+    const role: 'admin' | 'user' = totalUsers === 0 ? 'admin' : 'user'
+
     let user: User
     try {
-      user = await this.userRepository.create(payload)
+      user = await this.userRepository.create({ ...payload, role })
     } catch (error: unknown) {
       logger.error('Failed to create user', { error, email: payload.email })
       throw new Error('Failed to create user account', { cause: error })
@@ -388,7 +364,8 @@ export class AuthService {
     ke1: KE1,
     serverKeyPair: { privateKey: Uint8Array; publicKey: Uint8Array },
     oprfSeed: Uint8Array,
-    opaque: ZeroAccess
+    opaque: ZeroAccess,
+    rememberMe: boolean
   ): Promise<ServiceSignInAlphaResultDTO> => {
     const user: User | null = await this.userRepository.findByEmail(email)
     if (!user) {
@@ -432,6 +409,7 @@ export class AuthService {
       userId,
       expectedClientMac: uint8ArrayToBuffer(state.expectedClientMac).toString('base64'),
       sessionKey: uint8ArrayToBuffer(state.sessionKey).toString('base64'),
+      rememberMe,
       timestamp: Date.now()
     })
 
@@ -506,17 +484,21 @@ export class AuthService {
     }
 
     const userId: string = user._id
-    const tokens: TokenPair = await createJwtTokenPair({
-      user: {
-        _id: userId,
-        _cid: credentialIdentifier,
-        email: user.email,
-        username: user.username,
-        role: user.role
-      }
-    })
+    const refreshTokenTTL: number = state.rememberMe ? env.sessionRememberMeTTL : env.sessionTTL
+    const tokens: TokenPair = await createJwtTokenPair(
+      {
+        user: {
+          _id: userId,
+          _cid: credentialIdentifier,
+          email: user.email,
+          username: user.username,
+          role: user.role
+        }
+      },
+      refreshTokenTTL
+    )
 
-    await this.storeRefreshToken(userId, tokens.refreshToken)
+    await this.storeRefreshToken(userId, tokens.refreshToken, refreshTokenTTL)
 
     logger.info('User authenticated successfully', {
       userId,
@@ -524,7 +506,7 @@ export class AuthService {
       ip,
       userAgent
     })
-    return { user: this.sanitizeUser(user), tokens }
+    return { user: this.sanitizeUser(user), tokens, rememberMe: state.rememberMe }
   }
 
   /**
@@ -570,11 +552,9 @@ export class AuthService {
     }
 
     const userId: string = user._id
-    if (redisClient?.isOpen) {
-      const storedToken: string | null = await redisClient.get(REDIS_KEYS.REFRESH_TOKEN(userId))
-      if (storedToken && storedToken !== refreshToken) {
-        throw new Error('Invalid refresh token')
-      }
+    const storedToken: string | null = await sessionStore.get(REDIS_KEYS.REFRESH_TOKEN(userId))
+    if (storedToken && storedToken !== refreshToken) {
+      throw new Error('Invalid refresh token')
     }
 
     const tokens: TokenPair = await createJwtTokenPair({
@@ -587,9 +567,7 @@ export class AuthService {
       }
     })
 
-    if (redisClient?.isOpen) {
-      await redisClient.set(REDIS_KEYS.REFRESH_TOKEN(userId), tokens.refreshToken, { EX: 7 * 24 * 60 * 60 })
-    }
+    await sessionStore.set(REDIS_KEYS.REFRESH_TOKEN(userId), tokens.refreshToken, TTL.REFRESH_TOKEN)
     logger.info('Token refreshed successfully', { userId })
     return { userId, tokens }
   }
@@ -623,9 +601,7 @@ export class AuthService {
     const userId: string = user._id
     const resetToken: string = await generatePasswordResetToken(userId, user.email)
 
-    if (redisClient?.isOpen) {
-      await redisClient.set(`reset_token:${userId}`, resetToken, { EX: 3600 })
-    }
+    await sessionStore.set(`reset_token:${userId}`, resetToken, 3600)
 
     // TODO: Send reset email
     // await this.emailService.sendPasswordResetEmail(user.email, resetToken)
@@ -707,18 +683,13 @@ export class AuthService {
   public verifyEmail = async (token: string): Promise<string> => {
     const { userId } = await verifyEmailVerificationToken(token)
 
-    if (redisClient?.isOpen) {
-      const storedToken: string | null = await redisClient.get(`verification_token:${userId}`)
-      if (storedToken && storedToken !== token) {
-        throw new Error('Invalid verification token')
-      }
+    const storedToken: string | null = await sessionStore.get(REDIS_KEYS.VERIFICATION_TOKEN(userId))
+    if (storedToken && storedToken !== token) {
+      throw new Error('Invalid verification token')
     }
 
     await this.userRepository.verifyEmail(userId)
-
-    if (redisClient?.isOpen) {
-      await redisClient.del(`verification_token:${userId}`)
-    }
+    await sessionStore.del(REDIS_KEYS.VERIFICATION_TOKEN(userId))
 
     logger.info('Email verified successfully', { userId })
 
@@ -818,6 +789,7 @@ export class AuthService {
       userId,
       expectedClientMac: uint8ArrayToBuffer(state.expectedClientMac).toString('base64'),
       sessionKey: uint8ArrayToBuffer(state.sessionKey).toString('base64'),
+      rememberMe: false,
       timestamp: Date.now()
     })
 
@@ -930,9 +902,7 @@ export class AuthService {
     }
 
     // Invalidate all existing refresh tokens for this user
-    if (redisClient?.isOpen) {
-      await redisClient.del(REDIS_KEYS.REFRESH_TOKEN(userId))
-    }
+    await sessionStore.del(REDIS_KEYS.REFRESH_TOKEN(userId))
 
     // Generate new JWT token pair
     const tokens: TokenPair = await createJwtTokenPair({
@@ -957,7 +927,8 @@ export class AuthService {
 
     return {
       user: this.sanitizeUser(user),
-      tokens
+      tokens,
+      rememberMe: false
     }
   }
 
@@ -1048,11 +1019,7 @@ export class AuthService {
 
     const verificationToken: string = await generateEmailVerificationToken(userId, user.email)
 
-    if (redisClient?.isOpen) {
-      await redisClient.set(`verification_token:${userId}`, verificationToken, {
-        EX: 24 * 60 * 60
-      })
-    }
+    await sessionStore.set(REDIS_KEYS.VERIFICATION_TOKEN(userId), verificationToken, TTL.VERIFICATION_TOKEN)
 
     // TODO: Send verification email
     // await this.emailService.sendVerificationEmail(user.email, verificationToken)
@@ -1082,18 +1049,16 @@ export class AuthService {
    * @public
    */
   public signOut = async (userId: string, token: string): Promise<void> => {
-    if (redisClient?.isOpen) {
-      const decoded: BaseTokenPayload | null = await decodeToken(token)
-      let ttl: number = 3600
+    const decoded: BaseTokenPayload | null = await decodeToken(token)
+    let ttl: number = 3600
 
-      if (decoded?.exp) {
-        ttl = Math.max(decoded.exp - Math.floor(Date.now() / 1000), 0)
-      }
-      if (ttl > 0) {
-        await redisClient.set(`blacklist:${token}`, '1', { EX: ttl })
-      }
-      await redisClient.del(REDIS_KEYS.REFRESH_TOKEN(userId))
+    if (decoded?.exp) {
+      ttl = Math.max(decoded.exp - Math.floor(Date.now() / 1000), 0)
     }
+    if (ttl > 0) {
+      await sessionStore.set(`blacklist:${token}`, '1', ttl)
+    }
+    await sessionStore.del(REDIS_KEYS.REFRESH_TOKEN(userId))
     logger.info('User signed out successfully', { userId })
   }
 }

@@ -31,10 +31,6 @@ tonic-prost-build = "0.14.2"
 [features]
 default = []
 
-[lints.clippy]
-needless_return = "allow"
-match-single-binding = "allow"
-
 [profile.release]
 opt-level = 3
 lto = true

@@ -55,14 +55,9 @@ export const signUpBetaSchema = z.object({
   }),
   email: emailRule,
   username: usernameRule,
-  firstName: nameRule,
-  lastName: nameRule,
-  phone: phoneRule,
-  role: z.enum(['admin', 'user'], {
-    error: (): { message: string } => ({
-      message: 'Role must be either "admin" or "user"'
-    })
-  }),
+  firstName: nameRule.optional(),
+  lastName: nameRule.optional(),
+  phone: phoneRule.optional(),
   dateOfBirth: z.coerce
     .date({ error: 'Invalid date format (YYYY-MM-DD)' })
     .optional()
@@ -88,6 +83,7 @@ export const signUpBetaSchema = z.object({
 
 export const signInAlphaSchema = z.object({
   email: emailRule,
+  rememberMe: z.boolean({ error: 'rememberMe must be a boolean' }),
   ke1: z.object({
     blindedMessage: base64Rule('Blinded message'),
     clientNonce: base64Rule('Nonce'),
@@ -175,22 +171,3 @@ export const updateProfileSchema = z.object({
   address: z.string().min(10, 'Address must be at least 10 characters').max(500, 'Address must not exceed 500 characters').optional(),
   avatar: z.url('Invalid avatar URL').optional()
 })
-
-// TODO
-export type SignUpAlphaRequestDTO = z.infer<typeof signUpAlphaSchema>
-export type SignUpBetaRequestDTO = z.infer<typeof signUpBetaSchema>
-
-export type SignInAlphaRequestDTO = z.infer<typeof signInAlphaSchema>
-export type SignInBetaRequestDTO = z.infer<typeof signInBetaSchema>
-
-export type RefreshTokenRequestDTO = z.infer<typeof refreshTokenSchema>
-
-export type ForgotPasswordRequestDTO = z.infer<typeof forgotPasswordSchema>
-export type ResetPasswordRequestDTO = z.infer<typeof resetPasswordSchema>
-
-export type VerifyEmailRequestDTO = z.infer<typeof verifyEmailSchema>
-
-export type ChangePasswordAlphaRequestDTO = z.infer<typeof changePasswordAlphaSchema>
-export type ChangePasswordBetaRequestDTO = z.infer<typeof changePasswordBetaSchema>
-
-export type UpdateProfileRequestDTO = z.infer<typeof updateProfileSchema>

@@ -370,7 +370,10 @@ export class Helpers {
    * @public
    */
   public static deriveOprfKeyPair(seed: Uint8Array, info: string): { privateKey: Uint8Array; publicKey: Uint8Array } {
-    const derivedSeed: Uint8Array = this.expand(seed, info, CONFIG.Nok)
+    // @noble/hashes v2.x requires prk >= HashLen (64 bytes for SHA-512).
+    // The seed from Expand is only Nok=32 bytes, so Extract first to produce a 64-byte PRK.
+    const prk: Uint8Array = this.extract(null, seed)
+    const derivedSeed: Uint8Array = this.expand(prk, info, CONFIG.Nok)
     const privateKeyScalar: bigint = this.bytesToScalar(derivedSeed)
 
     if (privateKeyScalar === 0n) {
@@ -438,7 +441,10 @@ export class Helpers {
    */
   public static deriveDiffieHellmanKeyPair(seed: Uint8Array): { privateKey: Uint8Array; publicKey: Uint8Array } {
     const info: string = 'OPAQUE-DeriveAuthKeyPair'
-    const derivedSeed: Uint8Array = this.expand(seed, info, CONFIG.Nsk)
+    // @noble/hashes v2.x requires prk >= HashLen (64 bytes for SHA-512).
+    // The seed from randomBytes is only Nseed=32 bytes, so Extract first.
+    const prk: Uint8Array = this.extract(null, seed)
+    const derivedSeed: Uint8Array = this.expand(prk, info, CONFIG.Nsk)
     const privateKey: Uint8Array = this.clampX25519Key(derivedSeed)
     const publicKey: Uint8Array = x25519.getPublicKey(privateKey)
 

@@ -1,10 +1,9 @@
-import logger from '@/configs/logger.configs'
-
 import type { Context } from 'hono'
 import type { NodeWebSocket } from '@hono/node-ws'
 import type { WSContext, WSMessageReceive } from 'hono/ws'
 
 import { Hono } from 'hono'
+import { logger } from '@/configs/logger.configs'
 import { createNodeWebSocket } from '@hono/node-ws'
 
 const webSocketApp: Hono<Generics> = new Hono<Generics>()

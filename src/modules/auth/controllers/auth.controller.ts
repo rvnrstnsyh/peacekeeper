@@ -1,4 +1,3 @@
-import env from '@/configs/environment.configs'
 import httpResponse from '@/shared/utils/http-response.utils'
 
 import type { Context } from 'hono'
@@ -25,10 +24,11 @@ import type {
 
 import { setCookie } from 'hono/cookie'
 import { decodeBase64 } from 'hono/utils/encode'
+import { env } from '@/configs/environment.configs'
 import { randomBytes } from '@noble/hashes/utils.js'
 import { remoteAddr } from '@/shared/utils/remote-addr.utils'
 import { ZeroAccess } from '@/shared/utils/zero-access.utils'
-import { AuthService } from '@/modules/auth/services/auth.services'
+import { AuthService } from '@/modules/auth/services/auth.service'
 import { Serializer } from '@/shared/utils/zero-access.utils/serializer'
 import { logAuth, logError, logger, logSecurity } from '@/configs/logger.configs'
 import { base64ToUint8Array, uint8ArrayToBase64 } from '@/shared/utils/common.utils'
@@ -241,7 +241,7 @@ export class AuthController {
     try {
       const payload: SignInAlphaRequestDTO = ctx.get('validatedBody') as SignInAlphaRequestDTO
       const ke1: KE1 = Serializer.deserializeKE1(payload.ke1)
-      const { ke2, credentialIdentifier }: ServiceSignInAlphaResultDTO = await this.authService.signInAlpha(payload.email, ke1, env.serverKeyPair, env.oprfSeed, opaque)
+      const { ke2, credentialIdentifier }: ServiceSignInAlphaResultDTO = await this.authService.signInAlpha(payload.email, ke1, env.serverKeyPair, env.oprfSeed, opaque, payload.rememberMe)
 
       logAuth('sign_in_alpha', credentialIdentifier, true, { ip })
 
@@ -294,6 +294,7 @@ export class AuthController {
       const ke3: KE3 = Serializer.deserializeKE3(payload.ke3)
       const signInResult: ServiceSignInBetaResultDTO = await this.authService.signInBeta(payload.credentialIdentifier, ke3, opaque, ip, userAgent)
       const userId: string = signInResult.user._id
+      const cookieTTL: number = signInResult.rememberMe ? 30 * 24 * 60 * 60 : 24 * 60 * 60
 
       logAuth('sign_in_beta', userId, true, {
         email: signInResult.user.email,
@@ -302,8 +303,8 @@ export class AuthController {
       setCookie(ctx, 'Refresh-Token', signInResult.tokens.refreshToken, {
         domain: undefined,
         path: '/api/v0',
-        expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        maxAge: 7 * 24 * 60 * 60,
+        expires: new Date(Date.now() + cookieTTL * 1000),
+        maxAge: cookieTTL,
         httpOnly: true,
         secure: env.isProduction,
         sameSite: 'Strict' as const,
@@ -487,7 +488,7 @@ export class AuthController {
    */
   public verifyEmail = async (ctx: Context<Generics>): Promise<Response> => {
     try {
-      const token: string = ctx.req.param('verify-email-token')
+      const token: string = ctx.req.param('verify-email-token') ?? ''
       const userId: string | number = await this.authService.verifyEmail(token)
 
       logger.info('Email verified', { userId })

@@ -1,4 +1,3 @@
-import logger from '@/configs/logger.configs'
 import httpResponse from '@/shared/utils/http-response.utils'
 
 import type { Context, Next } from 'hono'
@@ -13,6 +12,7 @@ import { requestId } from 'hono/request-id'
 import { poweredBy } from 'hono/powered-by'
 import { prettyJSON } from 'hono/pretty-json'
 import { startTime, timing } from 'hono/timing'
+import { logger } from '@/configs/logger.configs'
 import { env } from '@/configs/environment.configs'
 import { secureHeaders } from 'hono/secure-headers'
 import { contextStorage } from 'hono/context-storage'

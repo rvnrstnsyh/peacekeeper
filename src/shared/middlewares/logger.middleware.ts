@@ -1,8 +1,7 @@
-import env from '@/configs/environment.configs'
-
 import type { Context, MiddlewareHandler, Next } from 'hono'
 
 import { createMiddleware } from 'hono/factory'
+import { env } from '@/configs/environment.configs'
 import { logger, logRequest } from '@/configs/logger.configs'
 import { remoteAddr } from '@/shared/utils/remote-addr.utils'
 import { SENSITIVE_KEYS } from '@/shared/constants/common.constants'
@@ -153,7 +152,7 @@ export function loggerMiddleware(options: LoggerOptions = {}) {
     logRequest(method, path, statusCode, durationMs, userId)
 
     // Console output (Hono-style, colorized for development)
-    if (process.env.NODE_ENV === 'development' && colorize) {
+    if (env.isDevelopment && colorize) {
       const methodColor: string = getMethodColor(method)
       const statusColor: string = getStatusColor(statusCode)
       const resetColor: string = '\x1b[0m'
@@ -184,37 +183,3 @@ export function honoLogger(options: LoggerOptions = {}): MiddlewareHandler {
     skipHealthCheck: true
   })
 }
-
-// Default logger
-export const defaultLogger: MiddlewareHandler = loggerMiddleware()
-
-// Verbose logger (logs request/response bodies)
-export const verboseLogger: MiddlewareHandler = loggerMiddleware({
-  logRequestBody: true,
-  logResponseBody: true,
-  maxBodyLength: 2000
-})
-
-// API logger (skip health checks)
-export const apiLogger: MiddlewareHandler = loggerMiddleware({
-  skipHealthCheck: true,
-  skipPaths: ['/favicon.ico', '/robots.txt']
-})
-
-// Debug logger (full details)
-export const debugLogger: MiddlewareHandler = loggerMiddleware({
-  logRequestBody: true,
-  logResponseBody: true,
-  maxBodyLength: 5000,
-  skipHealthCheck: false
-})
-
-// Production logger (minimal)
-export const productionLogger: MiddlewareHandler = loggerMiddleware({
-  logRequestBody: false,
-  logResponseBody: false,
-  skipHealthCheck: true,
-  colorize: false
-})
-
-export default loggerMiddleware

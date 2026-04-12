@@ -113,7 +113,7 @@ export async function generateAccessToken(payload: TokenGenerationPayload): Prom
  * @returns Signed refresh token string
  * @throws Error if token generation fails
  */
-export async function generateRefreshToken(payload: TokenGenerationPayload): Promise<string> {
+export async function generateRefreshToken(payload: TokenGenerationPayload, expiresIn?: number): Promise<string> {
   try {
     const signingKey: SigningKeyPair | null = await keyManager.getLatestSigningKey()
 
@@ -132,7 +132,7 @@ export async function generateRefreshToken(payload: TokenGenerationPayload): Pro
     }
     tokenPayload.type = 'refresh'
 
-    const expiresIn: number = parseDuration(env.JWT_REFRESH_EXPIRES_IN)
+    const tokenExpiresIn: number = expiresIn ?? parseDuration(env.JWT_REFRESH_EXPIRES_IN)
     const token: string = await new SignJWT(tokenPayload)
       .setProtectedHeader({
         alg: 'EdDSA',
@@ -141,7 +141,7 @@ export async function generateRefreshToken(payload: TokenGenerationPayload): Pro
       .setIssuedAt()
       .setIssuer(env.APP_NAME)
       .setAudience(env.APP_URL)
-      .setExpirationTime(Math.floor(Date.now() / 1000) + expiresIn)
+      .setExpirationTime(Math.floor(Date.now() / 1000) + tokenExpiresIn)
       .sign(privateKey)
 
     return token
@@ -157,9 +157,9 @@ export async function generateRefreshToken(payload: TokenGenerationPayload): Pro
  * @param payload - Token generation payload
  * @returns Token pair with expiry time
  */
-export async function createJwtTokenPair(payload: TokenGenerationPayload): Promise<TokenPair> {
+export async function createJwtTokenPair(payload: TokenGenerationPayload, refreshTokenExpiresIn?: number): Promise<TokenPair> {
   const accessToken: string = await generateAccessToken(payload)
-  const refreshToken: string = await generateRefreshToken(payload)
+  const refreshToken: string = await generateRefreshToken(payload, refreshTokenExpiresIn)
   // Calculate expiry time in seconds
   const decoded: BaseTokenPayload | null = await decodeToken(accessToken)
   const expiresIn: number = decoded?.exp ? decoded.exp - Math.floor(Date.now() / 1000) : 3600

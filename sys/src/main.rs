@@ -1,3 +1,5 @@
+#![allow(clippy::needless_return, clippy::match_single_binding)]
+
 use std::{env, path::PathBuf};
 
 use anyhow::Result;

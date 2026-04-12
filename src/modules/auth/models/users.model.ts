@@ -2,8 +2,8 @@ import type { Relations } from 'drizzle-orm'
 import type { PgEnum, PrimaryKeyBuilder } from 'drizzle-orm/pg-core'
 
 import { relations } from 'drizzle-orm'
-import { apiKeys } from '@/modules/auth/models/api_keys.model'
-import { opaqueEnvelopes } from '@/modules/auth/models/opaque_envelopes.model'
+import { apiKeys } from '@/modules/auth/models/api-keys.model'
+import { opaqueEnvelopes } from '@/modules/auth/models/opaque-envelopes.model'
 import { boolean, date, pgEnum, pgTable, primaryKey, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core'
 
 /**
@@ -43,12 +43,12 @@ export const users = pgTable(
     // Role and status
     role: roleEnum('role').notNull().default('user'),
     isEmailVerified: boolean('is_email_verified').notNull().default(false),
-    emailVerifiedAt: timestamp('email_verified_at'),
+    emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
     apiAccess: boolean('api_access').notNull().default(false),
     isActive: boolean('is_active').notNull().default(true),
 
     // Sign in tracking
-    lastSignInAt: timestamp('last_sign_in_at'),
+    lastSignInAt: timestamp('last_sign_in_at', { withTimezone: true }),
     lastSignInIp: varchar('last_sign_in_ip', { length: 45 }),
     lastSignInUserAgent: text('last_sign_in_user_agent'),
 

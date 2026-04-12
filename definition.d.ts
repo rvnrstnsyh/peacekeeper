@@ -1,7 +1,6 @@
-import type { User } from '@/database/schema.js'
 import type { TimingVariables } from 'hono/timing'
 import type { HttpBindings } from '@hono/node-server'
-import type { AccessTokenPayload } from '@/types/jwt.types.js'
+import type { AccessTokenPayload } from '@/shared/types/jwt.utils.types.js'
 
 /**
  * Global type definitions for the application

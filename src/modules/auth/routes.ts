@@ -8,7 +8,6 @@ import {
   changePasswordBetaSchema,
   forgotPasswordSchema,
   refreshTokenSchema,
-  resetPasswordSchema as _,
   signInAlphaSchema,
   signInBetaSchema,
   signUpAlphaSchema,

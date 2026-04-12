@@ -69,5 +69,3 @@ export async function checkDatabaseHealth(): Promise<boolean> {
     return false
   }
 }
-
-export default db

@@ -1,13 +1,13 @@
 import 'module-alias/register'
 
 import GrpcClient from '@/infra/grpc/client'
-import logger from '@/configs/logger.configs'
 
 import type { AddressInfo } from 'net'
 import type { ServerType } from '@hono/node-server'
 
 import { fetchHandler } from '@/app'
 import { serve } from '@hono/node-server'
+import { logger } from '@/configs/logger.configs'
 import { closeAllWsConnections, ws } from '@/infra/ws/events'
 import { env, validateConfig } from '@/configs/environment.configs'
 import { connectRedis, disconnectRedis } from '@/configs/redis.configs'
