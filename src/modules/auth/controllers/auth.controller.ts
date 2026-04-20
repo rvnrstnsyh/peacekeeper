@@ -2,7 +2,7 @@ import httpResponse from '@/shared/utils/http-response.utils'
 
 import type { Context } from 'hono'
 import type { AccessTokenPayload } from '@/shared/types/jwt.utils.types'
-import type { KE1, KE3, RegistrationRecord, RegistrationRequest, RegistrationResponse } from '@/shared/types/zero-access.utils.types'
+import type { KE1, KE2, KE3, RegistrationRecord, RegistrationRequest, RegistrationResponse } from '@/shared/types/zero-access.utils.types'
 import type {
   // Service DTOs
   ServiceRefreshTokenResultDTO,
@@ -12,13 +12,20 @@ import type {
   ServiceUserProfileResultDTO,
   // Request DTOs
   SignUpAlphaRequestDTO,
+  SignUpAlphaResponseDTO,
   SignUpBetaRequestDTO,
   SignInAlphaRequestDTO,
   SignInBetaRequestDTO,
+  SignInBetaResponseDTO,
   RefreshTokenRequestDTO,
   ForgotPasswordRequestDTO,
+  ResetPasswordAlphaRequestDTO,
+  ResetPasswordAlphaResponseDTO,
+  ResetPasswordBetaRequestDTO,
   ChangePasswordAlphaRequestDTO,
+  ChangePasswordAlphaResponseDTO,
   ChangePasswordBetaRequestDTO,
+  ChangePasswordBetaResponseDTO,
   UpdateProfileRequestDTO
 } from '@/modules/auth/dto/auth.dto'
 
@@ -105,7 +112,7 @@ export class AuthController {
 
       logAuth('sign_up_alpha', ip, true)
 
-      const signUpAlphaResponse = {
+      const signUpAlphaResponse: SignUpAlphaResponseDTO = {
         credentialIdentifier: uint8ArrayToBase64(credentialIdentifier),
         evaluatedMessage: uint8ArrayToBase64(registrationResponse.evaluatedMessage),
         serverPublicKey: uint8ArrayToBase64(registrationResponse.serverPublicKey)
@@ -313,7 +320,7 @@ export class AuthController {
         prefix: 'secure' as const
       })
 
-      const signInBetaResponse = {
+      const signInBetaResponse: SignInBetaResponseDTO = {
         user: signInResult.user,
         accessToken: signInResult.tokens.accessToken,
         expiresIn: signInResult.tokens.expiresIn
@@ -432,40 +439,118 @@ export class AuthController {
   }
 
   /**
-   * Reset Password (TODO: Token-based Implementation)
+   * Reset Password Alpha - Phase 1 of OPAQUE Password Reset
    *
-   * @todo Implement token-based password reset
-   * @endpoint POST /api/<version>/auth/reset-password/:token
-   * @validation Done by validation middleware
+   * Validates the user's reset token (from the forgot-password email link),
+   * then initiates a fresh OPAQUE registration for the new password.
+   * Generates a new credential identifier — the user's keypair is fully replaced
+   * (unlike change-password which preserves the existing keypair).
+   *
+   * @param ctx - Hono context containing resetToken and OPAQUE blinded message
+   * @returns Response with new credentialIdentifier, evaluatedMessage, serverPublicKey
    * @remarks
-   * This endpoint is currently disabled pending implementation.
-   * When implemented, it will allow users to reset their password using a
-   * secure token received via email from the forgotPassword endpoint.
-   * @param token - Reset token from URL parameter
-   * @param newPassword - New password from request body
+   * - Reset token is a one-time JWT from forgotPassword (1-hour expiry)
+   * - On success a 5-minute reset state is stored in Redis for phase 2
+   * - Returns 400 Bad Request if token is invalid, expired, or already used
+   * @endpoint POST /api/v0/auth/reset-password/alpha
+   * @body { resetToken: string, request: { blindedMessage: string } }
+   * @public
    */
-  // public resetPassword = async (ctx: Context<Generics>): Promise<Response> => {
-  //   try {
-  //     const token: string = ctx.req.param('reset-token')
-  //     const payload: ResetPasswordDTO = ctx.get('validatedBody') as ResetPasswordDTO
-  //     const ip: string = remoteAddr(ctx)
-  //     const userId: string | number = await this.authService.resetPassword(token, payload.newPassword)
+  public resetPasswordAlpha = async (ctx: Context<Generics>): Promise<Response> => {
+    const ip: string = remoteAddr(ctx)
 
-  //     logAuth('password_reset', userId, true, { method: 'reset_token', ip })
+    try {
+      const payload: ResetPasswordAlphaRequestDTO = ctx.get('validatedBody') as ResetPasswordAlphaRequestDTO
+      const registrationRequest = { blindedMessage: decodeBase64(payload.request.blindedMessage) }
 
-  //     return httpResponse.ok(ctx, 'Password reset successful')
-  //   } catch (error: unknown) {
-  //     logError(error as Error, {
-  //       controller: 'AuthController',
-  //       method: 'resetPassword'
-  //     })
+      const result: ResetPasswordAlphaResponseDTO = await this.authService.resetPasswordAlpha(payload.resetToken, registrationRequest, env.serverKeyPair.publicKey, env.oprfSeed, opaque)
 
-  //     if (error instanceof Error) {
-  //       return httpResponse.badRequest(ctx, error.message)
-  //     }
-  //     return httpResponse.internalServerError(ctx, 'Password reset failed')
-  //   }
-  // }
+      logAuth('reset_password_alpha', ip, true)
+
+      return httpResponse.ok(ctx, 'Password reset initialized', undefined, result)
+    } catch (error) {
+      const message: string = error instanceof Error ? error.message : 'Unknown error'
+
+      logError(error as Error, { controller: 'AuthController', method: 'resetPasswordAlpha', ip })
+      logSecurity('failed_password_reset', 'medium', { ip, error: message })
+
+      if (message.includes('Invalid or expired reset token')) {
+        return httpResponse.badRequest(ctx, 'Invalid or expired reset token')
+      }
+      if (message.includes('deactivated')) {
+        return httpResponse.unauthorized(ctx, 'Account is deactivated')
+      }
+
+      return httpResponse.badRequest(ctx, 'Password reset initialization failed')
+    }
+  }
+
+  /**
+   * Reset Password Beta - Phase 2 of OPAQUE Password Reset
+   *
+   * Completes password reset by storing the new OPAQUE registration record
+   * (new keypair), invalidating all existing sessions, and issuing a fresh
+   * token pair. The old OPAQUE envelope is replaced entirely.
+   *
+   * @param ctx - Hono context containing new credentialIdentifier and record
+   * @returns Response with user data, new access token, and refresh token (cookie)
+   * @remarks
+   * - Requires a valid reset state in Redis from resetPasswordAlpha (5-min TTL)
+   * - Old envelope is soft-deleted and replaced with the new one
+   * - All existing sessions are invalidated (refresh tokens cleared)
+   * - Sets a new secure HTTP-only refresh token cookie
+   * @endpoint POST /api/v0/auth/reset-password/beta
+   * @body { credentialIdentifier: string, record: { clientPublicKey, maskingKey, envelope } }
+   * @public
+   */
+  public resetPasswordBeta = async (ctx: Context<Generics>): Promise<Response> => {
+    const ip: string = remoteAddr(ctx)
+    const userAgent: string = ctx.req.header('user-agent') || 'unknown'
+
+    try {
+      const payload: ResetPasswordBetaRequestDTO = ctx.get('validatedBody') as ResetPasswordBetaRequestDTO
+      const newRecord = Serializer.deserializeRegistrationRecord(payload.record)
+
+      const result: ServiceSignInBetaResultDTO = await this.authService.resetPasswordBeta(payload.credentialIdentifier, newRecord, env.OPAQUE_CONTEXT, ip, userAgent)
+
+      logAuth('reset_password_beta', result.user._id, true, { email: result.user.email, ip })
+
+      setCookie(ctx, 'Refresh-Token', result.tokens.refreshToken, {
+        domain: undefined,
+        path: '/api/v0',
+        expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        maxAge: 7 * 24 * 60 * 60,
+        httpOnly: true,
+        secure: env.isProduction,
+        sameSite: 'Strict' as const,
+        priority: 'High' as const,
+        partitioned: false,
+        prefix: 'secure' as const
+      })
+
+      return httpResponse.ok(ctx, 'Password reset successful', undefined, {
+        user: result.user,
+        accessToken: result.tokens.accessToken,
+        expiresIn: result.tokens.expiresIn
+      })
+    } catch (error) {
+      const message: string = error instanceof Error ? error.message : 'Unknown error'
+
+      logError(error as Error, { controller: 'AuthController', method: 'resetPasswordBeta', ip })
+      logSecurity('failed_password_reset', 'high', { ip, error: message })
+
+      if (message.includes('expired') || message.includes('not found')) {
+        return httpResponse.badRequest(ctx, 'Reset session expired. Please restart the forgot password process.')
+      }
+
+      return httpResponse.badRequest(ctx, 'Password reset failed')
+    }
+  }
+
+  /**
+   * Reset Password (commented out - old bcrypt implementation)
+   * @see resetPasswordAlpha / resetPasswordBeta for the OPAQUE implementation
+   */
 
   /**
    * Verify Email
@@ -554,7 +639,7 @@ export class AuthController {
         blindedMessage: base64ToUint8Array(payload.request.newPasswordRegistrationRequest.blindedMessage)
       }
       // Process change password request through service
-      const { ke2, registrationResponse, credentialIdentifier } = await this.authService.changePasswordAlpha(
+      const { ke2, registrationResponse, credentialIdentifier }: { ke2: KE2; registrationResponse: RegistrationResponse; credentialIdentifier: string } = await this.authService.changePasswordAlpha(
         userId,
         base64ToUint8Array(session._cid),
         oldPasswordKE1,
@@ -566,7 +651,7 @@ export class AuthController {
 
       logAuth('change_password_alpha', userId, true, { ip, userAgent })
 
-      const changePasswordAlphaResponse = {
+      const changePasswordAlphaResponse: ChangePasswordAlphaResponseDTO = {
         credentialIdentifier,
         oldPasswordKE2: Serializer.serializeKE2(ke2),
         newPasswordRegistrationResponse: {
@@ -645,7 +730,7 @@ export class AuthController {
       // Deserialize new registration record
       const newRecord: RegistrationRecord = Serializer.deserializeRegistrationRecord(payload.newRecord)
       // Complete password change through service
-      const result = await this.authService.changePasswordBeta(userId, payload.credentialIdentifier, ke3, newRecord, opaque, env.OPAQUE_CONTEXT, ip, userAgent)
+      const result: ServiceSignInBetaResultDTO = await this.authService.changePasswordBeta(userId, payload.credentialIdentifier, ke3, newRecord, opaque, env.OPAQUE_CONTEXT, ip, userAgent)
 
       logAuth('change_password_beta', userId, true, {
         email: result.user.email,
@@ -666,7 +751,7 @@ export class AuthController {
         prefix: 'secure' as const
       })
 
-      const changePasswordBetaResponse = {
+      const changePasswordBetaResponse: ChangePasswordBetaResponseDTO = {
         user: result.user,
         accessToken: result.tokens.accessToken,
         expiresIn: result.tokens.expiresIn

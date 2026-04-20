@@ -12,11 +12,13 @@ import type {
   ServiceUserProfileResultDTO,
   // Request DTOs
   SignUpBetaRequestDTO,
-  UpdateProfileRequestDTO
+  UpdateProfileRequestDTO,
+  ResetPasswordAlphaResponseDTO
 } from '@/modules/auth/dto/auth.dto'
 
 import { logger } from '@/configs/logger.configs'
 import { env } from '@/configs/environment.configs'
+import { randomBytes } from '@noble/hashes/utils.js'
 import { sessionStore } from '@/shared/utils/session-store.utils'
 import { REDIS_KEYS, TTL } from '@/shared/constants/redis.constants'
 import { UserRepository } from '@/modules/auth/repositories/user.repository'
@@ -28,7 +30,7 @@ import {
   generateEmailVerificationToken,
   generatePasswordResetToken,
   verifyEmailVerificationToken,
-  verifyPasswordResetToken as _,
+  verifyPasswordResetToken,
   verifyRefreshToken
 } from '@/shared/utils/jwt.utils'
 
@@ -601,59 +603,201 @@ export class AuthService {
     const userId: string = user._id
     const resetToken: string = await generatePasswordResetToken(userId, user.email)
 
-    await sessionStore.set(`reset_token:${userId}`, resetToken, 3600)
+    await sessionStore.set(REDIS_KEYS.RESET_PASSWORD_TOKEN(userId), resetToken, TTL.RESET_PASSWORD_TOKEN)
 
-    // TODO: Send reset email
+    // TODO: Send reset email with resetToken link
     // await this.emailService.sendPasswordResetEmail(user.email, resetToken)
 
     logger.info('Password reset requested', { userId })
   }
 
   /**
-   * Reset Password (TODO: Migrate to OPAQUE)
+   * Reset Password Alpha - Initiate OPAQUE Password Reset
    *
-   * DEPRECATED - This method uses bcrypt password hashing.
-   * TODO: Implement OPAQUE-based password reset:
-   * 1. Verify reset token
-   * 2. Client generates new OPAQUE registration record
-   * 3. Server creates new OPAQUE envelope
-   * 4. Invalidate all sessions
+   * Phase 1 of the OPAQUE-based password reset flow.
+   * Validates the reset token issued by forgotPassword, then starts a fresh
+   * OPAQUE registration for the new password — identical to signUpAlpha but
+   * gated by the reset token. A brand-new credential identifier is generated
+   * so the user's keypair is fully replaced (unlike changePassword which keeps it).
    *
-   * Current flow would:
-   * - Verify reset token from Redis
-   * - Hash new password with bcrypt
-   * - Update password hash
-   * - Clean up reset token and sessions
+   * Process flow:
+   * 1. Verify the reset token JWT and extract userId
+   * 2. Validate token matches the one stored in Redis (anti-replay)
+   * 3. Check user exists and is active
+   * 4. Generate a new random 32-byte credential identifier
+   * 5. Evaluate the client's blinded message via OPRF (createRegistrationResponse)
+   * 6. Store reset state in Redis keyed by the new credentialIdentifier
+   * 7. Return credentialIdentifier, evaluatedMessage, and serverPublicKey
    *
-   * @param token - Password reset token
-   * @param newPassword - New password
-   * @returns User ID
-   * @throws Error if token is invalid or expired
+   * @param resetToken - JWT password reset token from forgotPassword
+   * @param registrationRequest - OPAQUE registration request with blindedMessage
+   * @param serverPublicKey - Server's OPAQUE public key
+   * @param oprfSeed - OPRF seed for deterministic operations
+   * @param opaque - ZeroAccess instance for OPAQUE operations
+   * @returns Reset alpha response with new credentialIdentifier + OPRF result
+   * @throws Error "Invalid or expired reset token" if token verification fails
+   * @throws Error "Invalid or expired reset token" if Redis token mismatch
+   * @throws Error "User not found" if userId from token doesn't exist
+   * @throws Error "Account is deactivated" if user.isActive is false
    * @public
    */
-  // public resetPassword = async (token: string, newPassword: string): Promise<string> => {
-  //   const { _id } = await verifyPasswordResetToken(token)
+  public resetPasswordAlpha = async (
+    resetToken: string,
+    registrationRequest: RegistrationRequest,
+    serverPublicKey: Uint8Array,
+    oprfSeed: Uint8Array,
+    opaque: ZeroAccess
+  ): Promise<ResetPasswordAlphaResponseDTO> => {
+    // Verify and decode the reset token
+    let userId: string
+    try {
+      const payload = await verifyPasswordResetToken(resetToken)
+      userId = payload.userId
+    } catch {
+      throw new Error('Invalid or expired reset token')
+    }
 
-  //   if (redisClient?.isOpen) {
-  //     const storedToken: string | null = await redisClient.get(`reset_token:${_id}`)
-  //     if (storedToken !== token) {
-  //       throw new Error('Invalid or expired reset token')
-  //     }
-  //   }
+    // Validate token matches stored Redis value (anti-replay)
+    const storedToken: string | null = await sessionStore.get(REDIS_KEYS.RESET_PASSWORD_TOKEN(userId))
+    if (!storedToken || storedToken !== resetToken) {
+      throw new Error('Invalid or expired reset token')
+    }
 
-  //   const hashedPassword: string = await this.hashPassword(newPassword)
+    const user: User | null = await this.userRepository.findById(userId)
+    if (!user) {
+      throw new Error('User not found')
+    }
+    if (!user.isActive) {
+      throw new Error('Account is deactivated')
+    }
 
-  //   await this.userRepository.updatePassword(_id, hashedPassword)
+    // Generate fresh credential identifier — full keypair reset
+    const newCredentialIdentifier: Uint8Array = randomBytes(32)
+    const registrationResponse = opaque.createRegistrationResponse(registrationRequest, serverPublicKey, newCredentialIdentifier, oprfSeed)
+    const credId: string = uint8ArrayToBuffer(newCredentialIdentifier).toString('base64')
 
-  //   if (redisClient?.isOpen) {
-  //     await redisClient.del(`reset_token:${_id}`)
-  //     await redisClient.del(REDIS_KEYS.REFRESH_TOKEN(_id))
-  //   }
+    // Store transient reset state for beta phase
+    await sessionStore.set(REDIS_KEYS.RESET_PASSWORD_STATE(credId), JSON.stringify({ userId, timestamp: Date.now() }), TTL.RESET_PASSWORD_STATE)
 
-  //   logger.info('Password reset successfully', { _id })
+    logger.info('Password reset alpha completed', { userId })
 
-  //   return _id
-  // }
+    return {
+      credentialIdentifier: credId,
+      evaluatedMessage: uint8ArrayToBuffer(registrationResponse.evaluatedMessage).toString('base64'),
+      serverPublicKey: uint8ArrayToBuffer(registrationResponse.serverPublicKey).toString('base64')
+    }
+  }
+
+  /**
+   * Reset Password Beta - Complete OPAQUE Password Reset
+   *
+   * Phase 2 of the OPAQUE-based password reset flow.
+   * The client has completed OPAQUE client-side registration and sends the
+   * new RegistrationRecord. The server replaces the old OPAQUE envelope with
+   * the new one (new credentialIdentifier), invalidates all existing sessions,
+   * and issues a fresh token pair.
+   *
+   * This is equivalent to a fresh sign-up for the OPAQUE layer — the user's
+   * entire keypair is replaced, which is the intended behavior for reset (as
+   * opposed to changePassword which preserves the existing credentialIdentifier).
+   *
+   * Process flow:
+   * 1. Retrieve reset state from Redis using credentialIdentifier
+   * 2. Validate state exists and extract userId
+   * 3. Delete reset state and reset token from Redis (one-time use)
+   * 4. Validate user exists and is active
+   * 5. Soft-delete old OPAQUE envelope
+   * 6. Create new OPAQUE envelope with new credentialIdentifier + newRecord
+   * 7. Invalidate all existing refresh tokens
+   * 8. Generate new JWT access and refresh tokens
+   *
+   * @param credentialIdentifier - Base64 new credential identifier from alpha phase
+   * @param newRecord - New OPAQUE registration record from client
+   * @param context - OPAQUE context string for protocol consistency
+   * @param ip - Client IP address for audit logging
+   * @param userAgent - Client user agent for audit logging
+   * @returns Object containing sanitized user data and new JWT token pair
+   * @throws Error "Reset session expired or not found" if state not in Redis
+   * @throws Error "User not found" if userId from state doesn't exist
+   * @throws Error "Account is deactivated" if user.isActive is false
+   * @throws Error "Failed to complete password reset" if envelope creation fails
+   * @public
+   */
+  public resetPasswordBeta = async (credentialIdentifier: string, newRecord: RegistrationRecord, context: string, ip: string, userAgent: string): Promise<ServiceSignInBetaResultDTO> => {
+    // Retrieve and validate reset state
+    const stateRaw: string | null = await sessionStore.get(REDIS_KEYS.RESET_PASSWORD_STATE(credentialIdentifier))
+    if (!stateRaw) {
+      throw new Error('Reset session expired or not found')
+    }
+    const state = JSON.parse(stateRaw) as { userId: string; timestamp: number }
+
+    // Consume reset state and token (one-time use)
+    await sessionStore.del(REDIS_KEYS.RESET_PASSWORD_STATE(credentialIdentifier))
+    await sessionStore.del(REDIS_KEYS.RESET_PASSWORD_TOKEN(state.userId))
+
+    const user: User | null = await this.userRepository.findById(state.userId)
+    if (!user) {
+      throw new Error('User not found')
+    }
+    if (!user.isActive) {
+      throw new Error('Account is deactivated')
+    }
+
+    const userId: string = user._id
+    const credentialIdBuffer: Buffer = Buffer.from(credentialIdentifier, 'base64')
+
+    // Replace old envelope: soft-delete first, then create new one with new keypair
+    await this.opaqueEnvelopesRepository.deleteByUserId(userId)
+
+    try {
+      const newOpaqueEnvelope: NewOpaqueEnvelope = {
+        userId,
+        credentialIdentifier: credentialIdBuffer,
+        clientPublicKey: uint8ArrayToBuffer(newRecord.clientPublicKey),
+        maskingKey: uint8ArrayToBuffer(newRecord.maskingKey),
+        nonce: uint8ArrayToBuffer(newRecord.envelope.nonce),
+        authTag: uint8ArrayToBuffer(newRecord.envelope.authTag),
+        seed: uint8ArrayToBuffer(newRecord.envelope.seed),
+        context,
+        registrationIp: ip,
+        registrationUserAgent: userAgent
+      }
+      await this.opaqueEnvelopesRepository.create(newOpaqueEnvelope)
+    } catch (envelopeError) {
+      logger.error('Failed to create new OPAQUE envelope during password reset', { userId, error: envelopeError })
+      throw new Error('Failed to complete password reset', { cause: envelopeError })
+    }
+
+    // Invalidate all existing sessions
+    await sessionStore.del(REDIS_KEYS.REFRESH_TOKEN(userId))
+
+    // Issue fresh token pair with the new credentialIdentifier
+    const tokens: TokenPair = await createJwtTokenPair({
+      user: {
+        _id: userId,
+        _cid: credentialIdentifier,
+        email: user.email,
+        username: user.username,
+        role: user.role
+      }
+    })
+
+    await this.storeRefreshToken(userId, tokens.refreshToken)
+
+    logger.info('Password reset successfully', { userId, email: user.email, ip, userAgent })
+
+    return {
+      user: this.sanitizeUser(user),
+      tokens,
+      rememberMe: false
+    }
+  }
+
+  /**
+   * @deprecated OPAQUE migration pending — old bcrypt-based reset password.
+   * Kept for reference only. See resetPasswordAlpha / resetPasswordBeta above.
+   */
+  // public resetPassword = async (token: string, newPassword: string): Promise<string> => { ... }
 
   /**
    * Verify Email

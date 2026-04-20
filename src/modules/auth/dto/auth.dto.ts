@@ -100,12 +100,52 @@ export interface ForgotPasswordRequestDTO {
 }
 
 /**
- * Reset Password request
- * TODO: With OPAQUE, this should trigger re-registration flow
+ * Reset Password Alpha Request DTO
+ *
+ * Request body for initiating password reset (Phase 1).
+ * User provides their reset token (received via email) and a blinded
+ * message to start the OPAQUE re-registration flow.
+ * The server generates a fresh credential identifier and OPRF response.
  */
-export interface ResetPasswordRequestDTO {
-  newPassword: string
-  confirmPassword: string
+export interface ResetPasswordAlphaRequestDTO {
+  /** JWT reset token issued by forgotPassword endpoint */
+  resetToken: string
+  /** OPAQUE registration request containing blinded message */
+  request: {
+    /** Base64-encoded blinded message (32 bytes) */
+    blindedMessage: string
+  }
+}
+
+/**
+ * Reset Password Alpha Response DTO
+ *
+ * Server response for password reset initiation (Phase 1).
+ * Mirrors SignUpAlphaResponseDTO — client uses this to complete
+ * the OPAQUE registration of the new password.
+ */
+export interface ResetPasswordAlphaResponseDTO {
+  /** Base64-encoded new credential identifier (32 bytes) */
+  credentialIdentifier: string
+  /** Base64-encoded OPRF-evaluated element (32 bytes) */
+  evaluatedMessage: string
+  /** Base64-encoded server public key (32 bytes) */
+  serverPublicKey: string
+}
+
+/**
+ * Reset Password Beta Request DTO
+ *
+ * Request body for completing password reset (Phase 2).
+ * Client sends the new OPAQUE registration record after completing
+ * client-side OPAQUE registration with the alpha response.
+ * Keypair is fully regenerated — equivalent to a fresh sign-up.
+ */
+export interface ResetPasswordBetaRequestDTO {
+  /** Base64-encoded credential identifier from alpha phase */
+  credentialIdentifier: string
+  /** New OPAQUE registration record for the new password */
+  record: RegistrationRecordSerialized
 }
 
 /**

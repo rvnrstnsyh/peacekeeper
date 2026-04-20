@@ -8,6 +8,8 @@ import {
   changePasswordBetaSchema,
   forgotPasswordSchema,
   refreshTokenSchema,
+  resetPasswordAlphaSchema,
+  resetPasswordBetaSchema,
   signInAlphaSchema,
   signInBetaSchema,
   signUpAlphaSchema,
@@ -30,8 +32,11 @@ endpoint
   .post('/sign-in/beta', validateBody(signInBetaSchema), controller.signInBeta)
   .get('/refresh-token', validateCookies(refreshTokenSchema), controller.refreshToken)
   .post('/forgot-password', validateBody(forgotPasswordSchema), controller.forgotPassword)
-  // TODO .post('/reset-password/alpha', validateBody(resetPasswordSchema), controller.resetPassword)
-  // TODO .post('/reset-password/beta/:reset-token', validateBody(resetPasswordSchema), controller.resetPassword)
+  // TODO: Add email delivery for reset token before enabling in production
+  // Currently the reset token is generated and stored in Redis but not sent via email.
+  // Implement email service and uncomment emailService.sendPasswordResetEmail in AuthService.forgotPassword.
+  .post('/reset-password/alpha', validateBody(resetPasswordAlphaSchema), controller.resetPasswordAlpha)
+  .post('/reset-password/beta', validateBody(resetPasswordBetaSchema), controller.resetPasswordBeta)
   .get('/verify-email/:verify-email-token', validateParams(verifyEmailSchema), controller.verifyEmail)
   // Protected routes
   .post('/change-password/alpha', auth, validateBody(changePasswordAlphaSchema), controller.changePasswordAlpha)

@@ -106,15 +106,25 @@ export const forgotPasswordSchema = z.object({
   email: emailRule
 })
 
-export const resetPasswordSchema = z
-  .object({
-    newPassword: z.string(),
-    confirmPassword: z.string({ error: 'Confirm password is required' })
+export const resetPasswordAlphaSchema = z.object({
+  resetToken: z.string({ error: 'Reset token is required' }).min(1, 'Reset token is required'),
+  request: z.object({
+    blindedMessage: base64Rule('Request')
   })
-  .refine((data) => data.newPassword === data.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword']
+})
+
+export const resetPasswordBetaSchema = z.object({
+  credentialIdentifier: base64Rule('Credential identifier'),
+  record: z.object({
+    clientPublicKey: base64Rule('Client public key'),
+    maskingKey: base64Rule('Masking key'),
+    envelope: z.object({
+      nonce: base64Rule('Nonce'),
+      authTag: base64Rule('Auth tag'),
+      seed: base64Rule('Seed')
+    })
   })
+})
 
 export const verifyEmailSchema = z.object({
   'verify-email-token': z.string({ error: 'Verification token is required' }).min(1, 'Verification token is required')

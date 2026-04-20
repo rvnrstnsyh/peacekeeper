@@ -235,7 +235,17 @@ export function logQuery(query: string, durationMs: number, success: boolean): v
  * Log authentication event
  */
 export function logAuth(
-  event: 'sign_in_alpha' | 'sign_in_beta' | 'sign_out' | 'sign_up_alpha' | 'sign_up_beta' | 'change_password_alpha' | 'change_password_beta' | 'token_refresh',
+  event:
+    | 'sign_in_alpha'
+    | 'sign_in_beta'
+    | 'sign_out'
+    | 'sign_up_alpha'
+    | 'sign_up_beta'
+    | 'change_password_alpha'
+    | 'change_password_beta'
+    | 'token_refresh'
+    | 'reset_password_alpha'
+    | 'reset_password_beta',
   userId: string | number,
   success: boolean,
   metadata?: Record<string, unknown>
