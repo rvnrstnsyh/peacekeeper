@@ -389,7 +389,7 @@ export async function generateEmailVerificationToken(userId: string, email: stri
 
     const privateKey: CryptoKey | Uint8Array = await importJWK(signingKey.sec, 'EdDSA')
     const tokenPayload: Record<string, unknown> = {
-      userId,
+      _id: userId,
       email,
       type: 'email_verification'
     }
@@ -400,6 +400,7 @@ export async function generateEmailVerificationToken(userId: string, email: stri
       })
       .setIssuedAt()
       .setIssuer(env.APP_NAME)
+      .setAudience(env.APP_URL)
       .setExpirationTime('24h')
       .sign(privateKey)
 
@@ -428,7 +429,8 @@ export async function verifyEmailVerificationToken(token: string): Promise<{ use
 
     const publicKey: CryptoKey | Uint8Array = await importJWK(signingKey.pub, 'EdDSA')
     const result: JWTVerifyResult = await jwtVerify(token, publicKey, {
-      issuer: env.APP_NAME
+      issuer: env.APP_NAME,
+      audience: env.APP_URL
     })
     const payload: JWTPayload = result.payload
 
@@ -469,7 +471,7 @@ export async function generatePasswordResetToken(userId: string, email: string):
 
     const privateKey: CryptoKey | Uint8Array = await importJWK(signingKey.sec, 'EdDSA')
     const tokenPayload: Record<string, unknown> = {
-      userId,
+      _id: userId,
       email,
       type: 'password_reset'
     }
@@ -480,6 +482,7 @@ export async function generatePasswordResetToken(userId: string, email: string):
       })
       .setIssuedAt()
       .setIssuer(env.APP_NAME)
+      .setAudience(env.APP_URL)
       .setExpirationTime('1h')
       .sign(privateKey)
 
@@ -508,7 +511,8 @@ export async function verifyPasswordResetToken(token: string): Promise<{ userId:
 
     const publicKey: CryptoKey | Uint8Array = await importJWK(signingKey.pub, 'EdDSA')
     const result: JWTVerifyResult = await jwtVerify(token, publicKey, {
-      issuer: env.APP_NAME
+      issuer: env.APP_NAME,
+      audience: env.APP_URL
     })
     const payload: JWTPayload = result.payload
 
@@ -517,7 +521,7 @@ export async function verifyPasswordResetToken(token: string): Promise<{ userId:
       throw new Error('Invalid token type')
     }
     return {
-      userId: payload.userId,
+      userId: payload._id,
       email: payload.email
     }
   } catch (error: unknown) {

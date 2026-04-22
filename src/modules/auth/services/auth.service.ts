@@ -16,9 +16,10 @@ import type {
   ResetPasswordAlphaResponseDTO
 } from '@/modules/auth/dto/auth.dto'
 
-import { logger } from '@/configs/logger.configs'
 import { env } from '@/configs/environment.configs'
 import { randomBytes } from '@noble/hashes/utils.js'
+import { EmailService } from '@/shared/utils/email.utils'
+import { logger, logError } from '@/configs/logger.configs'
 import { sessionStore } from '@/shared/utils/session-store.utils'
 import { REDIS_KEYS, TTL } from '@/shared/constants/redis.constants'
 import { UserRepository } from '@/modules/auth/repositories/user.repository'
@@ -66,20 +67,13 @@ export class AuthService {
    * @remarks
    * - Token expires in 24 hours (TTL.VERIFICATION_TOKEN)
    * - Non-blocking operation - errors are logged but not thrown
-   * - TODO: Integrate email service to send verification link
+   * - Sends verification email via EmailService
    * @private
    */
   private async generateVerificationToken(userId: string, email: string): Promise<void> {
-    try {
-      const token: string = await generateEmailVerificationToken(userId, email)
-      await sessionStore.set(REDIS_KEYS.VERIFICATION_TOKEN(userId), token, TTL.VERIFICATION_TOKEN)
-
-      // TODO: Send verification email
-      // await emailService.sendVerificationEmail(email, token)
-    } catch (error: unknown) {
-      logger.error('Failed to generate verification token', { userId, error })
-      throw error
-    }
+    const token: string = await generateEmailVerificationToken(userId, email)
+    await sessionStore.set(REDIS_KEYS.VERIFICATION_TOKEN(userId), token, TTL.VERIFICATION_TOKEN)
+    await EmailService.sendVerificationEmail(email, token)
   }
 
   /**
@@ -315,10 +309,7 @@ export class AuthService {
 
     // Generate and store verification token (non-blocking)
     this.generateVerificationToken(userId, user.email).catch((error: unknown) => {
-      logger.error('Failed to generate verification token', {
-        userId,
-        error
-      })
+      logError(error as Error, { service: 'AuthService', event: 'generate_verification_token', userId })
     })
 
     logger.info('User registered successfully', {
@@ -584,15 +575,15 @@ export class AuthService {
    * 1. Looks up user by email (returns silently if not found)
    * 2. Generates password reset JWT token with 1-hour expiration
    * 3. Stores token in Redis with 1-hour TTL
-   * 4. TODO: Sends reset email with token link
+   * 4. Sends password reset email via EmailService
    *
    * @param email - User's email address for lookup
    * @remarks
    * - Always succeeds to prevent email enumeration attacks
    * - Returns immediately without error if user doesn't exist
    * - Reset token stored with 1-hour expiration (3600 seconds)
-   * - Email sending not yet implemented (marked TODO)
-   * - Token should be sent via email link: /reset-password/:token
+   * - Email errors are swallowed to prevent leaking infrastructure state
+   * - Token is included in the reset link: /reset-password?token=...
    * @public
    */
   public forgotPassword = async (email: string): Promise<void> => {
@@ -605,8 +596,12 @@ export class AuthService {
 
     await sessionStore.set(REDIS_KEYS.RESET_PASSWORD_TOKEN(userId), resetToken, TTL.RESET_PASSWORD_TOKEN)
 
-    // TODO: Send reset email with resetToken link
-    // await this.emailService.sendPasswordResetEmail(user.email, resetToken)
+    try {
+      await EmailService.sendPasswordResetEmail(user.email, resetToken)
+    } catch (error: unknown) {
+      // Swallow email errors — never leak infrastructure failures on this endpoint
+      logError(error as Error, { service: 'AuthService', event: 'forgot_password', userId })
+    }
 
     logger.info('Password reset requested', { userId })
   }
@@ -815,11 +810,11 @@ export class AuthService {
    * @param token - JWT email verification token from verification link
    * @returns User ID of verified user
    * @throws Error "Invalid verification token" if JWT verification fails
-   * @throws Error "Invalid verification token" if stored token doesn't match
+   * @throws Error "Invalid verification token" if token not found in Redis or doesn't match
    * @throws Error from repository if user not found or update fails
    * @remarks
    * - Token valid for 24 hours (TTL.VERIFICATION_TOKEN)
-   * - Redis validation is optional - works with JWT-only if Redis unavailable
+   * - Redis match is mandatory — fail-closed if key absent (already used or expired)
    * - Token deleted after use to prevent reuse
    * - Updates isEmailVerified flag via repository.verifyEmail
    * @public
@@ -828,7 +823,7 @@ export class AuthService {
     const { userId } = await verifyEmailVerificationToken(token)
 
     const storedToken: string | null = await sessionStore.get(REDIS_KEYS.VERIFICATION_TOKEN(userId))
-    if (storedToken && storedToken !== token) {
+    if (!storedToken || storedToken !== token) {
       throw new Error('Invalid verification token')
     }
 
@@ -1138,7 +1133,7 @@ export class AuthService {
    * 2. Checks email is not already verified
    * 3. Generates new JWT verification token (24-hour expiration)
    * 4. Stores token in Redis (overwrites existing token)
-   * 5. TODO: Sends verification email with new token
+   * 5. Sends verification email via EmailService
    *
    * @param userId - User ID for token generation
    * @throws Error "User not found" if userId doesn't exist
@@ -1147,8 +1142,7 @@ export class AuthService {
    * - Prevents spam by blocking resend for verified emails
    * - New token replaces any existing token in Redis
    * - Token stored with 24-hour expiration (86400 seconds)
-   * - Email sending not yet implemented (marked TODO)
-   * - Token should be sent via email link: /verify-email/:token
+   * - Verification link format: /verify-email?token=...
    * @public
    */
   public resendVerificationEmail = async (userId: string): Promise<void> => {
@@ -1165,8 +1159,7 @@ export class AuthService {
 
     await sessionStore.set(REDIS_KEYS.VERIFICATION_TOKEN(userId), verificationToken, TTL.VERIFICATION_TOKEN)
 
-    // TODO: Send verification email
-    // await this.emailService.sendVerificationEmail(user.email, verificationToken)
+    await EmailService.sendVerificationEmail(user.email, verificationToken)
     logger.info('Verification email resent', { userId })
   }
 

@@ -13,10 +13,6 @@ export interface BaseTokenPayload {
   _id: string
   /** Credential identifier */
   _cid: string
-  /** User email address */
-  email: string
-  /** User role (admin, user, etc.) */
-  role: string
   /** Issued at timestamp (seconds since epoch) */
   iat?: number
   /** Expiration timestamp (seconds since epoch) */
@@ -33,8 +29,14 @@ export interface BaseTokenPayload {
  * User object embedded in access tokens
  */
 export interface TokenUser {
+  /** User ID (hoisted to top-level of JWT; stripped from stored user sub-object) */
+  _id?: string
+  /** Credential identifier (hoisted to top-level of JWT; stripped from stored user sub-object) */
+  _cid?: string
   /** User email address */
   email: string
+  /** Username */
+  username?: string
   /** User role */
   role: string
   /** User first name */
@@ -94,7 +96,7 @@ export interface EmailVerificationPayload {
  */
 export interface PasswordResetPayload {
   /** User ID */
-  userId: string
+  _id: string
   /** User email address */
   email: string
   /** Token type identifier */

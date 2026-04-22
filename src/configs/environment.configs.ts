@@ -45,6 +45,8 @@ const schema = z.object({
   APP_NAME: z.string().default('peacekeeper'),
   APP_VERSION: z.string().default('0.1.0'),
   APP_URL: z.url().default('http://localhost:14410'),
+  // The URL of the client application (e.g., React, Vue, Angular) that will consume the API.
+  APP_CLIENT_HOSTNAME: z.url().default('http://localhost:3000'),
 
   // gRPC
   GRPC_HOSTNAME: z.string().default('localhost'),
@@ -116,9 +118,14 @@ const schema = z.object({
   // Email (Optional)
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.string().transform(Number).pipe(z.number().min(1).max(65535)).optional(),
+  SMTP_SECURE: z
+    .string()
+    .transform((value: string): boolean => value === 'true')
+    .default(false),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   SMTP_FROM: z.email().optional(),
+  SMTP_NAME: z.string().default('Peacekeeper'),
 
   // File Upload
   UPLOAD_DIR: z.string().default('./uploads'),
@@ -255,6 +262,12 @@ export const env = {
 
   get sessionTTL(): number {
     return parseDurationSeconds(environmentSchema.SESSION_TTL)
+  },
+
+  // True when all required SMTP settings are present
+  get isEmailConfigured(): boolean {
+    const { SMTP_HOST, SMTP_PORT, SMTP_FROM } = environmentSchema
+    return !!(SMTP_HOST && SMTP_PORT && SMTP_FROM)
   }
 }
 

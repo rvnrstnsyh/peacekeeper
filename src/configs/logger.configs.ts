@@ -295,6 +295,18 @@ export function logPerformance(operation: string, durationMs: number, metadata?:
 }
 
 /**
+ * Log email delivery event
+ */
+export function logEmail(event: 'verification' | 'password_reset', to: string, success: boolean, metadata?: Record<string, unknown>): void {
+  logger.info('Email Event', {
+    event,
+    to,
+    success,
+    ...metadata
+  })
+}
+
+/**
  * Log error with context
  */
 export function logError(error: Error, context?: Record<string, unknown>): void {

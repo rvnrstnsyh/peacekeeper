@@ -66,9 +66,11 @@
     "@noble/hashes": "^2.2.0",
     "dotenv": "^17.4.1",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.12",
+    "handlebars": "^4.7.9",
+    "hono": "^4.12.14",
     "jose": "^6.2.2",
     "module-alias": "^2.3.4",
+    "nodemailer": "^8.0.5",
     "pg": "^8.20.0",
     "redis": "^5.11.0",
     "winston": "^3.19.0",
@@ -79,7 +81,9 @@
     "@eslint/js": "^10.0.1",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
+    "@types/handlebars": "^4.0.40",
     "@types/node": "^25.6.0",
+    "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.20.0",
     "@typescript-eslint/eslint-plugin": "^8.58.1",
     "@typescript-eslint/parser": "^8.58.1",
@@ -105,6 +109,7 @@
   "overrides": {
     "diff": "^8.0.3",
     "esbuild": "^0.25.0",
+    "protobufjs": "^7.5.5",
     "tar": "^7.5.3"
   }
 }
