@@ -155,6 +155,18 @@ export class OpaqueEnvelopesRepository {
   }
 
   /**
+   * Hard delete all envelopes for a user (permanent).
+   * Used during password reset to fully remove old credential material
+   * before inserting the new one, since the unique constraint on user_id
+   * does not filter soft-deleted rows.
+   */
+  async hardDeleteByUserId(userId: string): Promise<boolean> {
+    const result = await db.delete(opaqueEnvelopes).where(eq(opaqueEnvelopes.userId, userId))
+
+    return (result.rowCount ?? 0) > 0
+  }
+
+  /**
    * Check if envelope is locked
    */
   isLocked(envelope: OpaqueEnvelope, lockDurationMs?: number): boolean {

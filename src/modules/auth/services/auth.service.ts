@@ -741,8 +741,10 @@ export class AuthService {
     const userId: string = user._id
     const credentialIdBuffer: Buffer = Buffer.from(credentialIdentifier, 'base64')
 
-    // Replace old envelope: soft-delete first, then create new one with new keypair
-    await this.opaqueEnvelopesRepository.deleteByUserId(userId)
+    // Replace old envelope: hard-delete first (permanent removal of old credential
+    // material), then create new one. Soft-delete cannot be used here because the
+    // unique constraint on user_id has no WHERE deleted_at IS NULL partial filter.
+    await this.opaqueEnvelopesRepository.hardDeleteByUserId(userId)
 
     try {
       const newOpaqueEnvelope: NewOpaqueEnvelope = {
