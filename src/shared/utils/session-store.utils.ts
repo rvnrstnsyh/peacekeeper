@@ -39,6 +39,15 @@ class SessionStore {
     return !!redisClient?.isOpen
   }
 
+  /**
+   * Returns true when the session store is backed by Redis (i.e. Redis is
+   * currently connected). Callers can use this to distinguish between
+   * "key not found" (session invalidated) and "Redis unavailable" (fallback).
+   */
+  public get isRedisConnected(): boolean {
+    return this.isRedisAvailable()
+  }
+
   private warnFallback(): void {
     if (!this.fallbackWarned) {
       this.fallbackWarned = true

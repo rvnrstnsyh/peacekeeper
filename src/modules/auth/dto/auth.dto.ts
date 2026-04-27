@@ -1,4 +1,4 @@
-import type { KE1Serialized, KE2, KE3Serialized, RegistrationRecordSerialized } from '@/shared/types/zero-access.utils.types'
+import type { KE1Serialized, KE2, KE2Serialized, KE3Serialized, RegistrationRecordSerialized } from '@/shared/types/zero-access.utils.types'
 
 // ============================================================================
 // REQUEST DTOs - Data Transfer Objects for incoming requests
@@ -152,13 +152,14 @@ export interface ResetPasswordBetaRequestDTO {
  * Update Profile request
  */
 export interface UpdateProfileRequestDTO {
+  username?: string
   firstName?: string
   lastName?: string
   phone?: string
   dateOfBirth?: string
   gender?: 'male' | 'female'
   address?: string
-  avatar?: string
+  avatar?: string | null
 }
 
 /**
@@ -188,6 +189,7 @@ export interface ServiceUserProfileResultDTO {
   avatar?: string
   isEmailVerified: boolean
   isActive: boolean
+  usernameChangedAt?: Date | null
   createdAt: Date
   updatedAt: Date
 }
@@ -223,7 +225,7 @@ export interface SignUpBetaResponseDTO {
  */
 export interface SignInAlphaResponseDTO {
   credentialIdentifier: string
-  ke2: KE1Serialized // serialized KE2
+  ke2: KE2Serialized // serialized KE2
 }
 
 /**

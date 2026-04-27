@@ -28,6 +28,7 @@ import { OpaqueEnvelopesRepository } from '@/modules/auth/repositories/opaque-en
 import {
   createJwtTokenPair,
   decodeToken,
+  generateAccessToken,
   generateEmailVerificationToken,
   generatePasswordResetToken,
   verifyEmailVerificationToken,
@@ -546,11 +547,47 @@ export class AuthService {
 
     const userId: string = user._id
     const storedToken: string | null = await sessionStore.get(REDIS_KEYS.REFRESH_TOKEN(userId))
-    if (storedToken && storedToken !== refreshToken) {
+
+    // If Redis IS available but has no stored token for this user, the session
+    // was explicitly invalidated (e.g. via sign-out). Reject immediately rather
+    // than falling through to JWT-only validation, which would silently
+    // re-authenticate the user with a stale cookie.
+    if (storedToken === null && sessionStore.isRedisConnected) {
       throw new Error('Invalid refresh token')
     }
 
-    const tokens: TokenPair = await createJwtTokenPair({
+    if (storedToken && storedToken !== refreshToken) {
+      // The incoming token is not the current stored token. Check whether it was
+      // recently rotated out within the 30-second grace window — this happens when
+      // the Next.js proxy and the browser api-client both fire a refresh request
+      // simultaneously, each carrying the same (valid but now-superseded) token.
+      const prevToken: string | null = await sessionStore.get(REDIS_KEYS.REFRESH_TOKEN_PREV(userId))
+
+      if (prevToken === refreshToken) {
+        // Concurrent request: a sibling already rotated this token. Issue a new
+        // access token but re-use the already-current refresh token so both
+        // concurrent responses converge on the same refresh token and there is
+        // no divergent rotation chain.
+        const userPayload = {
+          user: {
+            _id: userId,
+            _cid: uint8ArrayToBuffer(envelope.credentialIdentifier).toString('base64'),
+            email: user.email,
+            username: user.username,
+            role: user.role
+          }
+        }
+        const accessToken: string = await generateAccessToken(userPayload)
+        const decoded: BaseTokenPayload | null = await decodeToken(accessToken)
+        const expiresIn: number = decoded?.exp ? decoded.exp - Math.floor(Date.now() / 1000) : 180
+        logger.info('Token refreshed successfully', { userId })
+        return { userId, tokens: { accessToken, refreshToken: storedToken, expiresIn } }
+      }
+
+      throw new Error('Invalid refresh token')
+    }
+
+    const userPayload = {
       user: {
         _id: userId,
         _cid: uint8ArrayToBuffer(envelope.credentialIdentifier).toString('base64'),
@@ -558,9 +595,25 @@ export class AuthService {
         username: user.username,
         role: user.role
       }
-    })
+    }
 
-    await sessionStore.set(REDIS_KEYS.REFRESH_TOKEN(userId), tokens.refreshToken, TTL.REFRESH_TOKEN)
+    // Derive the Redis TTL from the incoming token's remaining lifetime so that
+    // the rememberMe duration (24h vs 30d) is preserved across all rotations.
+    // NOTE: do NOT use TTL.REFRESH_TOKEN as the Math.max floor — doing so would
+    // reset the expiry to a full 24 h window on every rotation, making the
+    // refresh token effectively immortal for active users.  verifyRefreshToken()
+    // above already rejects expired tokens, so remainingTTL is always > 0.
+    const remainingTTL: number = payload.exp ? payload.exp - Math.floor(Date.now() / 1000) : TTL.REFRESH_TOKEN
+    // Generate new token pair.
+    const tokens: TokenPair = await createJwtTokenPair(userPayload, remainingTTL)
+
+    // Store the outgoing (now-superseded) token as "previous" for a short grace
+    // window so concurrent requests that arrive with the old token can succeed.
+    if (storedToken) {
+      await sessionStore.set(REDIS_KEYS.REFRESH_TOKEN_PREV(userId), storedToken, TTL.REFRESH_TOKEN_PREV)
+    }
+
+    await sessionStore.set(REDIS_KEYS.REFRESH_TOKEN(userId), tokens.refreshToken, remainingTTL)
     logger.info('Token refreshed successfully', { userId })
     return { userId, tokens }
   }
@@ -768,18 +821,24 @@ export class AuthService {
     // Invalidate all existing sessions
     await sessionStore.del(REDIS_KEYS.REFRESH_TOKEN(userId))
 
-    // Issue fresh token pair with the new credentialIdentifier
-    const tokens: TokenPair = await createJwtTokenPair({
-      user: {
-        _id: userId,
-        _cid: credentialIdentifier,
-        email: user.email,
-        username: user.username,
-        role: user.role
-      }
-    })
+    // Issue fresh token pair with the new credentialIdentifier.
+    // Use env.sessionTTL (rememberMe=false after reset) so that Redis TTL,
+    // JWT exp, and cookie maxAge all derive from the same source.
+    const refreshTokenTTL: number = env.sessionTTL
+    const tokens: TokenPair = await createJwtTokenPair(
+      {
+        user: {
+          _id: userId,
+          _cid: credentialIdentifier,
+          email: user.email,
+          username: user.username,
+          role: user.role
+        }
+      },
+      refreshTokenTTL
+    )
 
-    await this.storeRefreshToken(userId, tokens.refreshToken)
+    await this.storeRefreshToken(userId, tokens.refreshToken, refreshTokenTTL)
 
     logger.info('Password reset successfully', { userId, email: user.email, ip, userAgent })
 
@@ -1046,18 +1105,24 @@ export class AuthService {
     await sessionStore.del(REDIS_KEYS.REFRESH_TOKEN(userId))
 
     // Generate new JWT token pair
-    const tokens: TokenPair = await createJwtTokenPair({
-      user: {
-        _id: userId,
-        _cid: credentialIdentifier,
-        email: user.email,
-        username: user.username,
-        role: user.role
-      }
-    })
+    // Use env.sessionTTL (rememberMe=false after password change) so that
+    // Redis TTL, JWT exp, and cookie maxAge all derive from the same source.
+    const refreshTokenTTL: number = env.sessionTTL
+    const tokens: TokenPair = await createJwtTokenPair(
+      {
+        user: {
+          _id: userId,
+          _cid: credentialIdentifier,
+          email: user.email,
+          username: user.username,
+          role: user.role
+        }
+      },
+      refreshTokenTTL
+    )
 
     // Store new refresh token
-    await this.storeRefreshToken(userId, tokens.refreshToken)
+    await this.storeRefreshToken(userId, tokens.refreshToken, refreshTokenTTL)
 
     logger.info('Password changed successfully', {
       userId,
@@ -1115,7 +1180,29 @@ export class AuthService {
    * @public
    */
   public updateProfile = async (userId: string, data: UpdateProfileRequestDTO): Promise<ServiceUserProfileResultDTO> => {
-    const user: User | null = await this.userRepository.update(userId, data)
+    const currentUser: User | null = await this.userRepository.findById(userId)
+
+    if (!currentUser) {
+      throw new Error('User not found')
+    }
+
+    // Username change: enforce one-time-only rule and uniqueness
+    let updateData: UpdateProfileRequestDTO & { usernameChangedAt?: Date } = { ...data }
+    if (data.username !== undefined && data.username !== currentUser.username) {
+      if (currentUser.usernameChangedAt) {
+        throw new Error('Username can only be changed once')
+      }
+      const existingUser: User | null = await this.userRepository.findByUsername(data.username)
+      if (existingUser) {
+        throw new Error('Username already taken')
+      }
+      updateData = { ...updateData, usernameChangedAt: new Date() }
+    } else {
+      // Strip username from update payload if unchanged or not provided
+      delete updateData.username
+    }
+
+    const user: User | null = await this.userRepository.update(userId, updateData)
 
     if (!user) {
       throw new Error('User not found')

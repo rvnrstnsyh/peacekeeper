@@ -105,6 +105,8 @@ const schema = z.object({
   // JWT
   JWT_ACCESS_EXPIRES_IN: z.string().default('3m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('24h'),
+  JWT_EMAIL_VERIFICATION_EXPIRES_IN: z.string().default('24h'),
+  JWT_PASSWORD_RESET_EXPIRES_IN: z.string().default('10m'),
 
   // Session TTL (supports: s, m, h, d — e.g. '24h', '30d')
   SESSION_REMEMBER_ME_TTL: z.string().default('30d'),
@@ -262,6 +264,14 @@ export const env = {
 
   get sessionTTL(): number {
     return parseDurationSeconds(environmentSchema.SESSION_TTL)
+  },
+
+  get jwtEmailVerificationExpiresIn(): number {
+    return parseDurationSeconds(environmentSchema.JWT_EMAIL_VERIFICATION_EXPIRES_IN)
+  },
+
+  get jwtPasswordResetExpiresIn(): number {
+    return parseDurationSeconds(environmentSchema.JWT_PASSWORD_RESET_EXPIRES_IN)
   },
 
   // True when all required SMTP settings are present

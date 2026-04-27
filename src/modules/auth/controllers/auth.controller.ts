@@ -26,15 +26,17 @@ import type {
   ChangePasswordAlphaResponseDTO,
   ChangePasswordBetaRequestDTO,
   ChangePasswordBetaResponseDTO,
-  UpdateProfileRequestDTO
+  UpdateProfileRequestDTO,
+  SignInAlphaResponseDTO
 } from '@/modules/auth/dto/auth.dto'
 
-import { setCookie } from 'hono/cookie'
 import { decodeBase64 } from 'hono/utils/encode'
 import { env } from '@/configs/environment.configs'
 import { randomBytes } from '@noble/hashes/utils.js'
+import { deleteCookie, setCookie } from 'hono/cookie'
 import { remoteAddr } from '@/shared/utils/remote-addr.utils'
 import { ZeroAccess } from '@/shared/utils/zero-access.utils'
+import { getTokenRemainingTime } from '@/shared/utils/jwt.utils'
 import { AuthService } from '@/modules/auth/services/auth.service'
 import { Serializer } from '@/shared/utils/zero-access.utils/serializer'
 import { logAuth, logError, logger, logSecurity } from '@/configs/logger.configs'
@@ -252,7 +254,7 @@ export class AuthController {
 
       logAuth('sign_in_alpha', credentialIdentifier, true, { ip })
 
-      const signInAlphaResponse = {
+      const signInAlphaResponse: SignInAlphaResponseDTO = {
         credentialIdentifier,
         ke2: Serializer.serializeKE2(ke2)
       }
@@ -301,7 +303,7 @@ export class AuthController {
       const ke3: KE3 = Serializer.deserializeKE3(payload.ke3)
       const signInResult: ServiceSignInBetaResultDTO = await this.authService.signInBeta(payload.credentialIdentifier, ke3, opaque, ip, userAgent)
       const userId: string = signInResult.user._id
-      const cookieTTL: number = signInResult.rememberMe ? 30 * 24 * 60 * 60 : 24 * 60 * 60
+      const cookieTTL: number = await getTokenRemainingTime(signInResult.tokens.refreshToken)
 
       logAuth('sign_in_beta', userId, true, {
         email: signInResult.user.email,
@@ -309,7 +311,7 @@ export class AuthController {
       })
       setCookie(ctx, 'Refresh-Token', signInResult.tokens.refreshToken, {
         domain: undefined,
-        path: '/api/v0',
+        path: '/',
         expires: new Date(Date.now() + cookieTTL * 1000),
         maxAge: cookieTTL,
         httpOnly: true,
@@ -369,11 +371,14 @@ export class AuthController {
       const result: ServiceRefreshTokenResultDTO = await this.authService.refreshToken(payload['__Secure-Refresh-Token'])
 
       logAuth('token_refresh', result.userId, true, { ip })
+      // Derive the cookie TTL from the new refresh token's own expiry so that
+      // the original rememberMe duration is preserved across all rotations.
+      const refreshCookieTTL: number = await getTokenRemainingTime(result.tokens.refreshToken)
       setCookie(ctx, 'Refresh-Token', result.tokens.refreshToken, {
         domain: undefined,
-        path: '/api/v0',
-        expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        maxAge: 7 * 24 * 60 * 60,
+        path: '/',
+        expires: new Date(Date.now() + refreshCookieTTL * 1000),
+        maxAge: refreshCookieTTL,
         httpOnly: true,
         secure: env.isProduction,
         sameSite: 'Strict' as const,
@@ -509,17 +514,18 @@ export class AuthController {
 
     try {
       const payload: ResetPasswordBetaRequestDTO = ctx.get('validatedBody') as ResetPasswordBetaRequestDTO
-      const newRecord = Serializer.deserializeRegistrationRecord(payload.record)
-
+      const newRecord: RegistrationRecord = Serializer.deserializeRegistrationRecord(payload.record)
       const result: ServiceSignInBetaResultDTO = await this.authService.resetPasswordBeta(payload.credentialIdentifier, newRecord, env.OPAQUE_CONTEXT, ip, userAgent)
 
       logAuth('reset_password_beta', result.user._id, true, { email: result.user.email, ip })
 
+      const resetCookieTTL: number = await getTokenRemainingTime(result.tokens.refreshToken)
+
       setCookie(ctx, 'Refresh-Token', result.tokens.refreshToken, {
         domain: undefined,
-        path: '/api/v0',
-        expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        maxAge: 7 * 24 * 60 * 60,
+        path: '/',
+        expires: new Date(Date.now() + resetCookieTTL * 1000),
+        maxAge: resetCookieTTL,
         httpOnly: true,
         secure: env.isProduction,
         sameSite: 'Strict' as const,
@@ -738,11 +744,12 @@ export class AuthController {
         userAgent
       })
       // Set new refresh token cookie
+      const changePwCookieTTL: number = await getTokenRemainingTime(result.tokens.refreshToken)
       setCookie(ctx, 'Refresh-Token', result.tokens.refreshToken, {
         domain: undefined,
-        path: '/api/v0',
-        expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        maxAge: 7 * 24 * 60 * 60,
+        path: '/',
+        expires: new Date(Date.now() + changePwCookieTTL * 1000),
+        maxAge: changePwCookieTTL,
         httpOnly: true,
         secure: env.isProduction,
         sameSite: 'Strict' as const,
@@ -850,7 +857,11 @@ export class AuthController {
         method: 'updateProfile'
       })
       if (error instanceof Error) {
-        return httpResponse.badRequest(ctx, error.message)
+        const msg: string = error.message
+        if (msg === 'Username already taken' || msg === 'Username can only be changed once') {
+          return httpResponse.conflict(ctx, msg)
+        }
+        return httpResponse.badRequest(ctx, msg)
       }
       return httpResponse.internalServerError(ctx, 'Failed to update profile')
     }
@@ -928,6 +939,13 @@ export class AuthController {
       await this.authService.signOut(userId, token)
 
       logAuth('sign_out', userId, true, { ip: remoteAddr(ctx) })
+
+      // Clear the HTTP-only refresh token cookie so the browser cannot use
+      // it to re-authenticate after sign-out (e.g. via the Next.js proxy).
+      deleteCookie(ctx, 'Refresh-Token', {
+        path: '/',
+        prefix: 'secure' as const
+      })
 
       return httpResponse.ok(ctx, 'Signed out successfully')
     } catch (error: unknown) {

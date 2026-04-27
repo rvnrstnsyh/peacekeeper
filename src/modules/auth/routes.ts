@@ -22,9 +22,9 @@ const endpoint: Hono<Generics> = new Hono<Generics>()
 const controller: AuthController = new AuthController()
 
 endpoint
-  // Rate limiting for auth endpoints, 20 requests per 15 minutes
-  // Increase the limit for production
-  .use('*', rateLimitMiddleware({ max: 20, windowMs: 15 * 60 * 1000 }))
+  // Rate limiting for auth endpoints, 1000 requests per 15 minutes
+  // Adjust limits as needed based on expected traffic and security requirements
+  .use('*', rateLimitMiddleware({ max: 1000, windowMs: 15 * 60 * 1000 }))
   // Public routes
   .post('/sign-up/alpha', validateBody(signUpAlphaSchema), controller.signUpAlpha)
   .post('/sign-up/beta', validateBody(signUpBetaSchema), controller.signUpBeta)

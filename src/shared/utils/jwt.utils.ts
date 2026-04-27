@@ -393,6 +393,7 @@ export async function generateEmailVerificationToken(userId: string, email: stri
       email,
       type: 'email_verification'
     }
+    const tokenExpiresIn: number = parseDuration(env.JWT_EMAIL_VERIFICATION_EXPIRES_IN)
     const token: string = await new SignJWT(tokenPayload)
       .setProtectedHeader({
         alg: 'EdDSA',
@@ -401,7 +402,7 @@ export async function generateEmailVerificationToken(userId: string, email: stri
       .setIssuedAt()
       .setIssuer(env.APP_NAME)
       .setAudience(env.APP_URL)
-      .setExpirationTime('24h')
+      .setExpirationTime(Math.floor(Date.now() / 1000) + tokenExpiresIn)
       .sign(privateKey)
 
     return token
@@ -475,6 +476,7 @@ export async function generatePasswordResetToken(userId: string, email: string):
       email,
       type: 'password_reset'
     }
+    const tokenExpiresIn: number = parseDuration(env.JWT_PASSWORD_RESET_EXPIRES_IN)
     const token: string = await new SignJWT(tokenPayload)
       .setProtectedHeader({
         alg: 'EdDSA',
@@ -483,7 +485,7 @@ export async function generatePasswordResetToken(userId: string, email: string):
       .setIssuedAt()
       .setIssuer(env.APP_NAME)
       .setAudience(env.APP_URL)
-      .setExpirationTime('1h')
+      .setExpirationTime(Math.floor(Date.now() / 1000) + tokenExpiresIn)
       .sign(privateKey)
 
     return token

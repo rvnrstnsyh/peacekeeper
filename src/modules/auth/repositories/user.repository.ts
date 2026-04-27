@@ -50,6 +50,24 @@ export class UserRepository {
   }
 
   /**
+   * Find user by username
+   */
+  async findByUsername(username: string): Promise<User | null> {
+    try {
+      const [user]: Array<User> = await db
+        .select()
+        .from(users)
+        .where(and(eq(users.username, username), isNull(users.deletedAt)))
+        .limit(1)
+
+      return user || null
+    } catch (error: unknown) {
+      logger.error('Error finding user by username', { error, username })
+      throw new Error('Failed to find user', { cause: error })
+    }
+  }
+
+  /**
    * Create new user
    */
   async create(data: SignUpBetaRequestDTO & { role: 'admin' | 'user' }): Promise<User> {
@@ -81,7 +99,7 @@ export class UserRepository {
   /**
    * Update user
    */
-  async update(userId: string, data: UpdateProfileRequestDTO): Promise<User | null> {
+  async update(userId: string, data: UpdateProfileRequestDTO & { usernameChangedAt?: Date }): Promise<User | null> {
     try {
       const [user]: Array<User> = await db
         .update(users)

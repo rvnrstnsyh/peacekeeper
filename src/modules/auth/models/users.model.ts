@@ -55,6 +55,7 @@ export const users = pgTable(
     // Timestamps
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }),
+    usernameChangedAt: timestamp('username_changed_at', { withTimezone: true }),
     deletedAt: timestamp('deleted_at', { withTimezone: true })
   },
   (table): Array<PrimaryKeyBuilder> => [primaryKey({ name: 'pk_users', columns: [table._id] }), unique('uq_users_email').on(table.email)]

@@ -161,6 +161,12 @@ export const changePasswordBetaSchema = z.object({
 })
 
 export const updateProfileSchema = z.object({
+  username: z
+    .string()
+    .min(3, 'Username must be at least 3 characters')
+    .max(30, 'Username must be at most 30 characters')
+    .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores')
+    .optional(),
   firstName: nameRule.optional(),
   lastName: nameRule.optional(),
   phone: phoneRule,
@@ -179,5 +185,11 @@ export const updateProfileSchema = z.object({
     ),
   gender: z.enum(['male', 'female']).optional(),
   address: z.string().min(10, 'Address must be at least 10 characters').max(500, 'Address must not exceed 500 characters').optional(),
-  avatar: z.url('Invalid avatar URL').optional()
+  avatar: z
+    .string()
+    .refine((val: string): boolean => /^https?:\/\/.+/.test(val) || /^\/uploads\/.+/.test(val), {
+      message: 'Avatar must be a valid URL or upload path'
+    })
+    .nullable()
+    .optional()
 })
