@@ -13,6 +13,8 @@ export interface BaseTokenPayload {
   _id: string
   /** Credential identifier */
   _cid: string
+  /** Channel ID for session channel encryption (set after OPAQUE KE3) */
+  _sid?: string
   /** Issued at timestamp (seconds since epoch) */
   iat?: number
   /** Expiration timestamp (seconds since epoch) */
@@ -128,6 +130,8 @@ export type TokenPayload = AccessTokenPayload | RefreshTokenPayload | EmailVerif
 export interface TokenGenerationPayload {
   /** Full user object to embed in access token */
   user?: TokenUser
+  /** Channel ID for session channel encryption — embedded as `_sid` in both tokens */
+  channelId?: string
 }
 
 /**

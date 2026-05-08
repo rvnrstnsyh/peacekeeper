@@ -301,15 +301,38 @@ export function rateLimitMiddleware(options: RateLimitOptions = {}) {
   })
 }
 
-// Strict rate limiter for authentication endpoints
+// Strict rate limiter for authentication endpoints (sign-in)
+// Only failed attempts count — successful sign-ins are not penalised.
 export const authRateLimiter: MiddlewareHandler = rateLimitMiddleware({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 requests per 15 minutes
+  max: 10, // 10 failed attempts per 15 minutes per IP
   message: 'Too many authentication attempts, please try again later',
-  skipSuccessfulRequests: true, // Only count failed sign in attempts
+  skipSuccessfulRequests: true,
   keyGenerator: (ctx: Context<Generics>): string => {
     const ip: string = remoteAddr(ctx)
     return `auth:${ip}`
+  }
+})
+
+// Rate limiter for account registration — prevents account farming / abuse
+export const registrationRateLimiter: MiddlewareHandler = rateLimitMiddleware({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // 10 registration attempts per IP per hour
+  message: 'Too many registration attempts, please try again later',
+  keyGenerator: (ctx: Context<Generics>): string => {
+    const ip: string = remoteAddr(ctx)
+    return `reg:${ip}`
+  }
+})
+
+// Rate limiter for password-reset flow — prevents email flooding / user enumeration timing
+export const passwordResetRateLimiter: MiddlewareHandler = rateLimitMiddleware({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // 5 attempts per IP per hour
+  message: 'Too many password reset attempts, please try again later',
+  keyGenerator: (ctx: Context<Generics>): string => {
+    const ip: string = remoteAddr(ctx)
+    return `pwdreset:${ip}`
   }
 })
 

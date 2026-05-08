@@ -455,6 +455,27 @@ export class Helpers {
   }
 
   /**
+   * Derives an ED25519 signing key pair from a master seed using HKDF label separation.
+   *
+   * Uses the label 'ZeroAccess-DeriveSigningKeyPair' to derive an independent sub-seed
+   * from the same master seed used for the X25519 ECDH keypair (Option B).
+   * This provides each user with a stable ED25519 identity key for digital signatures.
+   *
+   * @param masterSeed - The 32-byte master seed from the OPAQUE envelope.
+   * @returns Object containing:
+   *   - privateKey: The ED25519 private seed (32 bytes)
+   *   - publicKey: The ED25519 public key (32 bytes, compressed Edwards point)
+   * @public
+   */
+  public static deriveSigningKeyPair(masterSeed: Uint8Array): { privateKey: Uint8Array; publicKey: Uint8Array } {
+    const prk: Uint8Array = this.extract(null, masterSeed)
+    const signingSubSeed: Uint8Array = this.expand(prk, 'ZeroAccess-DeriveSigningKeyPair', 32)
+    this.secureZero(prk)
+    const { pointBytes: publicKey } = ed25519.utils.getExtendedPublicKey(signingSubSeed)
+    return { privateKey: signingSubSeed, publicKey }
+  }
+
+  /**
    * Applies X25519 key clamping as required by RFC 7748.
    *
    * Clamps the private key by:
@@ -492,12 +513,12 @@ export class Helpers {
    * @see RFC 9807 Section 4 - Credentials structure
    * @public
    */
-  public static createCleartextCredentials(serverPublicKey: Uint8Array, clientPublicKey: Uint8Array, serverIdentity?: Uint8Array, clientIdentity?: Uint8Array): CleartextCredentials {
+  public static createCleartextCredentials(serverX25519PublicKey: Uint8Array, clientX25519PublicKey: Uint8Array, serverIdentity?: Uint8Array, clientIdentity?: Uint8Array): CleartextCredentials {
     return {
-      serverPublicKey,
-      serverIdentity: serverIdentity || serverPublicKey,
-      clientPublicKey,
-      clientIdentity: clientIdentity || clientPublicKey
+      serverX25519PublicKey,
+      serverIdentity: serverIdentity || serverX25519PublicKey,
+      clientX25519PublicKey,
+      clientIdentity: clientIdentity || clientX25519PublicKey
     }
   }
 
@@ -528,10 +549,11 @@ export class Helpers {
     serverPublicKey: Uint8Array,
     serverIdentity?: Uint8Array,
     clientIdentity?: Uint8Array,
-    clientKeypairSeed?: Uint8Array
+    clientX25519KeypairSeed?: Uint8Array
   ): {
     envelope: Envelope
-    clientPublicKey: Uint8Array
+    clientED25519PublicKey: Uint8Array
+    clientX25519PublicKey: Uint8Array
     maskingKey: Uint8Array
     exportKey: Uint8Array
   } {
@@ -542,26 +564,28 @@ export class Helpers {
     const seedEncryptionKey: Uint8Array = this.expand(randomizedPassword, this.concat(envelopeNonce, new TextEncoder().encode('SeedKey')), CONFIG.Nseed)
     const maskingKey: Uint8Array = this.expand(randomizedPassword, new TextEncoder().encode('MaskingKey'), CONFIG.Nh)
     // Generate or use provided client keypair seed
-    const actualSeed: Uint8Array = clientKeypairSeed || randomBytes(CONFIG.Nseed)
+    const actualSeed: Uint8Array = clientX25519KeypairSeed || randomBytes(CONFIG.Nseed)
     const encryptedSeed: Uint8Array = this.xor(actualSeed, seedEncryptionKey)
 
-    const { publicKey: clientPublicKey } = this.deriveDiffieHellmanKeyPair(actualSeed)
+    const { publicKey: clientX25519PublicKey } = this.deriveDiffieHellmanKeyPair(actualSeed)
+    const { publicKey: clientED25519PublicKey, privateKey: clientED25519PrivateKey } = this.deriveSigningKeyPair(actualSeed)
 
     // Construct cleartext credentials
     const serverId: Uint8Array = serverIdentity || serverPublicKey
-    const clientId: Uint8Array = clientIdentity || clientPublicKey
+    const clientId: Uint8Array = clientIdentity || clientX25519PublicKey
     // Create authentication tag
     const authInput: Uint8Array = this.concat(envelopeNonce, encryptedSeed, serverPublicKey, this.i2OSP(serverId.length, 2), serverId, this.i2OSP(clientId.length, 2), clientId)
     const authTag: Uint8Array = hmac(sha512, authKey, authInput)
 
-    this.secureZeroMultiple(seedEncryptionKey, authKey)
-    if (!clientKeypairSeed) {
+    this.secureZeroMultiple(seedEncryptionKey, authKey, clientED25519PrivateKey)
+    if (!clientX25519KeypairSeed) {
       this.secureZero(actualSeed)
     }
 
     return {
       envelope: { nonce: envelopeNonce, authTag, seed: encryptedSeed },
-      clientPublicKey,
+      clientED25519PublicKey,
+      clientX25519PublicKey,
       maskingKey,
       exportKey
     }
@@ -596,8 +620,9 @@ export class Helpers {
     serverIdentity?: Uint8Array,
     clientIdentity?: Uint8Array
   ): {
-    clientPrivateKey: Uint8Array
-    clientKeypairSeed: Uint8Array
+    clientED25519PublicKey: Uint8Array
+    clientX25519PrivateKey: Uint8Array
+    clientX25519KeypairSeed: Uint8Array
     cleartextCredentials: CleartextCredentials
     exportKey: Uint8Array
   } {
@@ -609,34 +634,37 @@ export class Helpers {
     const exportKey: Uint8Array = this.expand(randomizedPassword, this.concat(envelope.nonce, new TextEncoder().encode('ExportKey')), CONFIG.Nh)
     const seedEncryptionKey: Uint8Array = this.expand(randomizedPassword, this.concat(envelope.nonce, new TextEncoder().encode('SeedKey')), CONFIG.Nseed)
     // Decrypt client keypair seed
-    const clientKeypairSeed: Uint8Array = this.xor(envelope.seed, seedEncryptionKey)
+    const clientX25519KeypairSeed: Uint8Array = this.xor(envelope.seed, seedEncryptionKey)
 
-    const { privateKey: clientPrivateKey, publicKey: clientPublicKey } = this.deriveDiffieHellmanKeyPair(clientKeypairSeed)
+    const { privateKey: clientX25519PrivateKey, publicKey: clientX25519PublicKey } = this.deriveDiffieHellmanKeyPair(clientX25519KeypairSeed)
+    const { publicKey: clientED25519PublicKey, privateKey: clientED25519PrivateKey } = this.deriveSigningKeyPair(clientX25519KeypairSeed)
 
     // Construct cleartext credentials
     const serverId: Uint8Array = serverIdentity || serverPublicKey
-    const clientId: Uint8Array = clientIdentity || clientPublicKey
+    const clientId: Uint8Array = clientIdentity || clientX25519PublicKey
     // Verify authentication tag
     const expectedTagInput: Uint8Array = this.concat(envelope.nonce, envelope.seed, serverPublicKey, this.i2OSP(serverId.length, 2), serverId, this.i2OSP(clientId.length, 2), clientId)
     const expectedTag: Uint8Array = hmac(sha512, authKey, expectedTagInput)
 
     if (!this.ctEqual(envelope.authTag, expectedTag)) {
-      this.secureZeroMultiple(authKey, exportKey, clientPrivateKey, clientKeypairSeed, seedEncryptionKey)
+      this.secureZeroMultiple(authKey, exportKey, clientX25519PrivateKey, clientX25519KeypairSeed, seedEncryptionKey, clientED25519PrivateKey)
+      // Envelope Recovery Error: Invalid password or corrupted envelope
       throw new Error('EnvelopeRecoveryError: Invalid password or corrupted envelope')
     }
 
     const cleartextCredentials: CleartextCredentials = {
       clientIdentity: clientId,
       serverIdentity: serverId,
-      clientPublicKey,
-      serverPublicKey
+      clientX25519PublicKey,
+      serverX25519PublicKey: serverPublicKey
     }
 
-    this.secureZeroMultiple(seedEncryptionKey, authKey)
+    this.secureZeroMultiple(seedEncryptionKey, authKey, clientED25519PrivateKey)
 
     return {
-      clientPrivateKey,
-      clientKeypairSeed,
+      clientED25519PublicKey,
+      clientX25519PrivateKey,
+      clientX25519KeypairSeed,
       cleartextCredentials,
       exportKey
     }
@@ -734,7 +762,8 @@ export class Helpers {
     }
 
     return {
-      clientPublicKey: fakeClientPublicKey,
+      clientED25519PublicKey: randomBytes(32),
+      clientX25519PublicKey: fakeClientPublicKey,
       maskingKey: fakeMaskingKey,
       envelope: fakeEnvelope
     }
@@ -796,8 +825,9 @@ export class Helpers {
     serverIdentity?: Uint8Array,
     clientIdentity?: Uint8Array
   ): {
-    clientPrivateKey: Uint8Array
-    clientKeypairSeed: Uint8Array
+    clientED25519PublicKey: Uint8Array
+    clientX25519PrivateKey: Uint8Array
+    clientX25519KeypairSeed: Uint8Array
     cleartextCredentials: CleartextCredentials
     exportKey: Uint8Array
   } {
@@ -824,13 +854,13 @@ export class Helpers {
     }
 
     // Extract envelope components
-    const serverPublicKey: Uint8Array = unmasked.slice(0, CONFIG.Npk)
+    const serverX25519PublicKey: Uint8Array = unmasked.slice(0, CONFIG.Npk)
     const envelopeNonce: Uint8Array = unmasked.slice(CONFIG.Npk, CONFIG.Npk + CONFIG.Nn)
     const authTag: Uint8Array = unmasked.slice(CONFIG.Npk + CONFIG.Nn, CONFIG.Npk + CONFIG.Nn + CONFIG.Nm)
     const seed: Uint8Array = unmasked.slice(CONFIG.Npk + CONFIG.Nn + CONFIG.Nm)
     const envelope: Envelope = { nonce: envelopeNonce, authTag, seed }
     // Recover credentials from envelope
-    const result = this.recover(randomizedPassword, serverPublicKey, envelope, serverIdentity, clientIdentity)
+    const result = this.recover(randomizedPassword, serverX25519PublicKey, envelope, serverIdentity, clientIdentity)
 
     this.secureZeroMultiple(passwordBytes, oprfOutput, mhfSalt, hardenedOutput, randomizedPassword, maskingKey, credentialResponsePad, unmasked)
 
@@ -864,7 +894,7 @@ export class Helpers {
     serverPublicKeyshare: Uint8Array
   ): Uint8Array {
     const context: Uint8Array = new TextEncoder().encode(CONFIG.context)
-    const ke1Bytes: Uint8Array = this.concat(ke1.credentialRequest.blindedMessage, ke1.authRequest.clientNonce, ke1.authRequest.clientPublicKeyshare)
+    const ke1Bytes: Uint8Array = this.concat(ke1.credentialRequest.blindedMessage, ke1.authRequest.clientNonce, ke1.authRequest.clientX25519PublicKeyshare)
     const credRespBytes: Uint8Array = this.concat(credentialResponse.evaluatedMessage, credentialResponse.maskingNonce, credentialResponse.maskedResponse)
 
     return this.concat(

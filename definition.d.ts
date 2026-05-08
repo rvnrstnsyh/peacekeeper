@@ -30,6 +30,8 @@ declare global {
     validatedQuery: T
     validatedParams: T
     validatedCookies: T
+    // Channel encryption: pre-decrypted request body (set by channel-encryption middleware)
+    decryptedBody: T
     // Authentication variables (set by auth middleware)
     session: AccessTokenPayload
   }

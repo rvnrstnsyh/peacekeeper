@@ -31,7 +31,8 @@ export class Serializer {
    */
   public static serializeRegistrationRecord(record: RegistrationRecord): RegistrationRecordSerialized {
     return {
-      clientPublicKey: uint8ArrayToBase64(record.clientPublicKey),
+      clientED25519PublicKey: uint8ArrayToBase64(record.clientED25519PublicKey),
+      clientX25519PublicKey: uint8ArrayToBase64(record.clientX25519PublicKey),
       maskingKey: uint8ArrayToBase64(record.maskingKey),
       envelope: {
         nonce: uint8ArrayToBase64(record.envelope.nonce),
@@ -53,7 +54,7 @@ export class Serializer {
    * @public
    */
   public static deserializeRegistrationRecord(record: RegistrationRecordSerialized): RegistrationRecord {
-    if (!record.clientPublicKey || !record.maskingKey || !record.envelope) {
+    if (!record.clientX25519PublicKey || !record.maskingKey || !record.envelope || !record.clientED25519PublicKey) {
       throw new Error('Missing required fields in RegistrationRecord')
     }
 
@@ -62,23 +63,28 @@ export class Serializer {
     }
 
     try {
-      const clientPublicKey: Uint8Array = base64ToUint8Array(record.clientPublicKey)
+      const clientX25519PublicKey: Uint8Array = base64ToUint8Array(record.clientX25519PublicKey)
       const maskingKey: Uint8Array = base64ToUint8Array(record.maskingKey)
+      const clientED25519PublicKey: Uint8Array = base64ToUint8Array(record.clientED25519PublicKey)
       const envelope: Envelope = {
         nonce: base64ToUint8Array(record.envelope.nonce),
         authTag: base64ToUint8Array(record.envelope.authTag),
         seed: base64ToUint8Array(record.envelope.seed)
       }
 
-      Helpers.validateX25519PublicKey(clientPublicKey)
+      Helpers.validateX25519PublicKey(clientX25519PublicKey)
 
       if (maskingKey.length !== CONFIG.Nh) {
         throw new Error('Invalid maskingKey length')
       }
 
+      if (clientED25519PublicKey.length !== 32) {
+        throw new Error('Invalid clientED25519PublicKey length: expected 32 bytes')
+      }
+
       Helpers.validateEnvelope(envelope)
 
-      return { clientPublicKey, maskingKey, envelope }
+      return { clientED25519PublicKey, clientX25519PublicKey, maskingKey, envelope }
     } catch (error) {
       throw new Error(`Failed to deserialize RegistrationRecord: ${error}`, { cause: error })
     }
@@ -97,7 +103,7 @@ export class Serializer {
     return {
       blindedMessage: uint8ArrayToBase64(ke1.credentialRequest.blindedMessage),
       clientNonce: uint8ArrayToBase64(ke1.authRequest.clientNonce),
-      clientPublicKeyshare: uint8ArrayToBase64(ke1.authRequest.clientPublicKeyshare)
+      clientX25519PublicKeyshare: uint8ArrayToBase64(ke1.authRequest.clientX25519PublicKeyshare)
     }
   }
 
@@ -115,7 +121,7 @@ export class Serializer {
   public static deserializeKE1(serialized: KE1Serialized): KE1 {
     const blindedMessage: Uint8Array = base64ToUint8Array(serialized.blindedMessage)
     const clientNonce: Uint8Array = base64ToUint8Array(serialized.clientNonce)
-    const clientPublicKeyshare: Uint8Array = base64ToUint8Array(serialized.clientPublicKeyshare)
+    const clientX25519PublicKeyshare: Uint8Array = base64ToUint8Array(serialized.clientX25519PublicKeyshare)
 
     if (blindedMessage.length !== 32) {
       throw new Error(`Invalid blindedMessage length: expected 32, got ${blindedMessage.length}`)
@@ -123,13 +129,13 @@ export class Serializer {
     if (clientNonce.length !== 32) {
       throw new Error(`Invalid clientNonce length: expected 32, got ${clientNonce.length}`)
     }
-    if (clientPublicKeyshare.length !== 32) {
-      throw new Error(`Invalid clientPublicKeyshare length: expected 32, got ${clientPublicKeyshare.length}`)
+    if (clientX25519PublicKeyshare.length !== 32) {
+      throw new Error(`Invalid clientX25519PublicKeyshare length: expected 32, got ${clientX25519PublicKeyshare.length}`)
     }
 
     return {
       credentialRequest: { blindedMessage },
-      authRequest: { clientNonce, clientPublicKeyshare }
+      authRequest: { clientNonce, clientX25519PublicKeyshare }
     }
   }
 
@@ -144,7 +150,7 @@ export class Serializer {
    * @public
    */
   public static serializeKE1Compact(ke1: KE1): string {
-    const bytes: Uint8Array = Helpers.concat(ke1.credentialRequest.blindedMessage, ke1.authRequest.clientNonce, ke1.authRequest.clientPublicKeyshare)
+    const bytes: Uint8Array = Helpers.concat(ke1.credentialRequest.blindedMessage, ke1.authRequest.clientNonce, ke1.authRequest.clientX25519PublicKeyshare)
     return uint8ArrayToBase64(bytes)
   }
 
@@ -171,7 +177,7 @@ export class Serializer {
       },
       authRequest: {
         clientNonce: bytes.slice(32, 64),
-        clientPublicKeyshare: bytes.slice(64, 96)
+        clientX25519PublicKeyshare: bytes.slice(64, 96)
       }
     }
   }
@@ -191,7 +197,7 @@ export class Serializer {
       maskingNonce: uint8ArrayToBase64(ke2.credentialResponse.maskingNonce),
       maskedResponse: uint8ArrayToBase64(ke2.credentialResponse.maskedResponse),
       serverNonce: uint8ArrayToBase64(ke2.authResponse.serverNonce),
-      serverPublicKeyshare: uint8ArrayToBase64(ke2.authResponse.serverPublicKeyshare),
+      serverX25519PublicKeyshare: uint8ArrayToBase64(ke2.authResponse.serverX25519PublicKeyshare),
       serverMac: uint8ArrayToBase64(ke2.authResponse.serverMac)
     }
   }
@@ -212,7 +218,7 @@ export class Serializer {
     const maskingNonce: Uint8Array = base64ToUint8Array(serialized.maskingNonce)
     const maskedResponse: Uint8Array = base64ToUint8Array(serialized.maskedResponse)
     const serverNonce: Uint8Array = base64ToUint8Array(serialized.serverNonce)
-    const serverPublicKeyshare: Uint8Array = base64ToUint8Array(serialized.serverPublicKeyshare)
+    const serverX25519PublicKeyshare: Uint8Array = base64ToUint8Array(serialized.serverX25519PublicKeyshare)
     const serverMac: Uint8Array = base64ToUint8Array(serialized.serverMac)
 
     if (evaluatedMessage.length !== 32) {
@@ -224,8 +230,8 @@ export class Serializer {
     if (serverNonce.length !== 32) {
       throw new Error(`Invalid serverNonce length: expected 32, got ${serverNonce.length}`)
     }
-    if (serverPublicKeyshare.length !== 32) {
-      throw new Error(`Invalid serverPublicKeyshare length: expected 32, got ${serverPublicKeyshare.length}`)
+    if (serverX25519PublicKeyshare.length !== 32) {
+      throw new Error(`Invalid serverX25519PublicKeyshare length: expected 32, got ${serverX25519PublicKeyshare.length}`)
     }
     if (serverMac.length !== 64) {
       throw new Error(`Invalid serverMac length: expected 64, got ${serverMac.length}`)
@@ -233,7 +239,7 @@ export class Serializer {
 
     return {
       credentialResponse: { evaluatedMessage, maskingNonce, maskedResponse },
-      authResponse: { serverNonce, serverPublicKeyshare, serverMac }
+      authResponse: { serverNonce, serverX25519PublicKeyshare, serverMac }
     }
   }
 
@@ -253,7 +259,7 @@ export class Serializer {
       ke2.credentialResponse.maskingNonce,
       ke2.credentialResponse.maskedResponse,
       ke2.authResponse.serverNonce,
-      ke2.authResponse.serverPublicKeyshare,
+      ke2.authResponse.serverX25519PublicKeyshare,
       ke2.authResponse.serverMac
     )
     return uint8ArrayToBase64(bytes)
@@ -292,14 +298,14 @@ export class Serializer {
     const serverNonce: Uint8Array = bytes.slice(offset, offset + 32)
     offset += 32
 
-    const serverPublicKeyshare: Uint8Array = bytes.slice(offset, offset + 32)
+    const serverX25519PublicKeyshare: Uint8Array = bytes.slice(offset, offset + 32)
     offset += 32
 
     const serverMac: Uint8Array = bytes.slice(offset, offset + 64)
 
     return {
       credentialResponse: { evaluatedMessage, maskingNonce, maskedResponse },
-      authResponse: { serverNonce, serverPublicKeyshare, serverMac }
+      authResponse: { serverNonce, serverX25519PublicKeyshare, serverMac }
     }
   }
 
@@ -453,7 +459,7 @@ export class Serializer {
       request.credentialIdentifier,
       request.oldPasswordKE1.credentialRequest.blindedMessage,
       request.oldPasswordKE1.authRequest.clientNonce,
-      request.oldPasswordKE1.authRequest.clientPublicKeyshare,
+      request.oldPasswordKE1.authRequest.clientX25519PublicKeyshare,
       request.newPasswordRegistrationRequest.blindedMessage
     )
 
@@ -499,7 +505,7 @@ export class Serializer {
     const clientNonce: Uint8Array = bytes.slice(offset, offset + 32)
     offset += 32
 
-    const clientPublicKeyshare: Uint8Array = bytes.slice(offset, offset + 32)
+    const clientX25519PublicKeyshare: Uint8Array = bytes.slice(offset, offset + 32)
     offset += 32
 
     // Read new password registration request
@@ -509,7 +515,7 @@ export class Serializer {
       credentialIdentifier,
       oldPasswordKE1: {
         credentialRequest: { blindedMessage },
-        authRequest: { clientNonce, clientPublicKeyshare }
+        authRequest: { clientNonce, clientX25519PublicKeyshare }
       },
       newPasswordRegistrationRequest: {
         blindedMessage: newBlindedMessage
@@ -532,7 +538,7 @@ export class Serializer {
       oldPasswordKE2: this.serializeKE2(response.oldPasswordKE2),
       newPasswordRegistrationResponse: {
         evaluatedMessage: uint8ArrayToBase64(response.newPasswordRegistrationResponse.evaluatedMessage),
-        serverPublicKey: uint8ArrayToBase64(response.newPasswordRegistrationResponse.serverPublicKey)
+        serverX25519PublicKey: uint8ArrayToBase64(response.newPasswordRegistrationResponse.serverX25519PublicKey)
       }
     }
   }
@@ -556,19 +562,19 @@ export class Serializer {
     try {
       const oldPasswordKE2: KE2 = this.deserializeKE2(serialized.oldPasswordKE2)
       const evaluatedMessage: Uint8Array = base64ToUint8Array(serialized.newPasswordRegistrationResponse.evaluatedMessage)
-      const serverPublicKey: Uint8Array = base64ToUint8Array(serialized.newPasswordRegistrationResponse.serverPublicKey)
+      const serverX25519PublicKey: Uint8Array = base64ToUint8Array(serialized.newPasswordRegistrationResponse.serverX25519PublicKey)
 
       if (evaluatedMessage.length !== 32) {
         throw new Error(`Invalid evaluatedMessage length: expected 32, got ${evaluatedMessage.length}`)
       }
 
-      Helpers.validateX25519PublicKey(serverPublicKey)
+      Helpers.validateX25519PublicKey(serverX25519PublicKey)
 
       return {
         oldPasswordKE2,
         newPasswordRegistrationResponse: {
           evaluatedMessage,
-          serverPublicKey
+          serverX25519PublicKey
         }
       }
     } catch (error) {
@@ -590,7 +596,7 @@ export class Serializer {
   public static serializeChangePasswordResponseCompact(response: ChangePasswordResponse): string {
     // Serialize KE2 first to get its bytes
     const ke2Bytes: Uint8Array = base64ToUint8Array(this.serializeKE2Compact(response.oldPasswordKE2))
-    const bytes: Uint8Array = Helpers.concat(ke2Bytes, response.newPasswordRegistrationResponse.evaluatedMessage, response.newPasswordRegistrationResponse.serverPublicKey)
+    const bytes: Uint8Array = Helpers.concat(ke2Bytes, response.newPasswordRegistrationResponse.evaluatedMessage, response.newPasswordRegistrationResponse.serverX25519PublicKey)
 
     return uint8ArrayToBase64(bytes)
   }
@@ -618,13 +624,13 @@ export class Serializer {
     const ke2Bytes: Uint8Array = bytes.slice(0, ke2Length)
     const oldPasswordKE2: KE2 = this.deserializeKE2Compact(uint8ArrayToBase64(ke2Bytes))
     const evaluatedMessage: Uint8Array = bytes.slice(ke2Length, ke2Length + 32)
-    const serverPublicKey: Uint8Array = bytes.slice(ke2Length + 32)
+    const serverX25519PublicKey: Uint8Array = bytes.slice(ke2Length + 32)
 
     return {
       oldPasswordKE2,
       newPasswordRegistrationResponse: {
         evaluatedMessage,
-        serverPublicKey
+        serverX25519PublicKey
       }
     }
   }

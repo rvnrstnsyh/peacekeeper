@@ -83,7 +83,8 @@ export class OpaqueEnvelopesRepository {
   async updateByCredentialIdentifier(
     credentialIdentifier: Buffer,
     data: {
-      clientPublicKey: Buffer
+      clientED25519PublicKey: Buffer
+      clientX25519PublicKey: Buffer
       maskingKey: Buffer
       nonce: Buffer
       authTag: Buffer

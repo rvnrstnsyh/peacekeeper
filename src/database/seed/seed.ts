@@ -16,7 +16,7 @@ async function seed(): Promise<void> {
         username: 'admin',
         firstName: 'System',
         lastName: 'Admin',
-        role: 'admin',
+        role: 'administrator',
         isEmailVerified: true,
         isActive: true,
         phone: '+1234567890'

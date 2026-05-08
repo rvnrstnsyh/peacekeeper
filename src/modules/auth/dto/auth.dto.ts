@@ -130,7 +130,7 @@ export interface ResetPasswordAlphaResponseDTO {
   /** Base64-encoded OPRF-evaluated element (32 bytes) */
   evaluatedMessage: string
   /** Base64-encoded server public key (32 bytes) */
-  serverPublicKey: string
+  serverX25519PublicKey: string
 }
 
 /**
@@ -209,7 +209,7 @@ export interface AuthTokensDTO {
 export interface SignUpAlphaResponseDTO {
   credentialIdentifier: string
   evaluatedMessage: string // base64 encoded
-  serverPublicKey: string // base64 encoded
+  serverX25519PublicKey: string // base64 encoded
 }
 
 /**
@@ -235,6 +235,42 @@ export interface SignInBetaResponseDTO {
   user: ServiceUserProfileResultDTO
   accessToken: string
   expiresIn: number
+  clientED25519PublicKey: string
+  clientX25519PublicKey: string
+}
+
+/**
+ * Security Keys Alpha Request DTO
+ *
+ * Request body for initiating security keys retrieval (Phase 1).
+ * Identical to sign-in alpha but serves as a dedicated endpoint
+ * for authenticated access to the user's cryptographic identity.
+ */
+export interface SecurityKeysAlphaRequestDTO {
+  email: string
+  ke1: KE1Serialized
+}
+
+/**
+ * Security Keys Beta Request DTO
+ *
+ * Request body for completing security keys retrieval (Phase 2).
+ * Verifies the KE3 MAC and returns the user's OPAQUE client public key.
+ */
+export interface SecurityKeysBetaRequestDTO {
+  credentialIdentifier: string
+  ke3: KE3Serialized
+}
+
+/**
+ * Security Keys Beta Response DTO
+ *
+ * Response confirming successful password verification.
+ * Contains the user's OPAQUE client public key (base64).
+ */
+export interface SecurityKeysBetaResponseDTO {
+  clientED25519PublicKey: string
+  clientX25519PublicKey: string
 }
 
 /**
@@ -266,7 +302,7 @@ export interface ChangePasswordAlphaResponseDTO {
     /** Base64-encoded server nonce (32 bytes) */
     serverNonce: string
     /** Base64-encoded server ephemeral public key (32 bytes) */
-    serverPublicKeyshare: string
+    serverX25519PublicKeyshare: string
     /** Base64-encoded server MAC (64 bytes) */
     serverMac: string
   }
@@ -275,7 +311,7 @@ export interface ChangePasswordAlphaResponseDTO {
     /** Base64-encoded OPRF-evaluated message (32 bytes) */
     evaluatedMessage: string
     /** Base64-encoded server public key (32 bytes) */
-    serverPublicKey: string
+    serverX25519PublicKey: string
   }
 }
 
@@ -365,12 +401,14 @@ export interface ServiceSignInAlphaResultDTO {
 }
 
 /**
- * Internal DTO for service layer - sign in alpha result
+ * Internal DTO for service layer - sign in beta result
  */
 export interface ServiceSignInBetaResultDTO {
   user: ServiceUserProfileResultDTO
   tokens: ServiceAuthTokensDTO
   rememberMe: boolean
+  clientED25519PublicKey?: string
+  clientX25519PublicKey?: string
 }
 
 /**

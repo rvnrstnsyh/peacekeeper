@@ -59,7 +59,7 @@ export interface RegistrationResponse {
   /** OPRF-evaluated blinded message (ristretto255 point, 32 bytes) */
   evaluatedMessage: Uint8Array
   /** Server's long-term public key (X25519, 32 bytes) */
-  serverPublicKey: Uint8Array
+  serverX25519PublicKey: Uint8Array
 }
 
 /**
@@ -90,8 +90,10 @@ export interface Envelope {
  * @see RFC 9807 Section 4 - Registration record
  */
 export interface RegistrationRecord {
+  /** Client's ED25519 signing public key (32 bytes) */
+  clientED25519PublicKey: Uint8Array
   /** Client's long-term public key (X25519, 32 bytes) */
-  clientPublicKey: Uint8Array
+  clientX25519PublicKey: Uint8Array
   /** Key used to mask credential responses (64 bytes) */
   maskingKey: Uint8Array
   /** Encrypted envelope containing client's private key material */
@@ -105,8 +107,10 @@ export interface RegistrationRecord {
  * encoded as Base64 strings.
  */
 export interface RegistrationRecordSerialized {
-  /** Base64-encoded client public key */
-  clientPublicKey: string
+  /** Base64-encoded client ED25519 signing public key */
+  clientED25519PublicKey: string
+  /** Base64-encoded client X25519 public key */
+  clientX25519PublicKey: string
   /** Base64-encoded masking key */
   maskingKey: string
   /** Envelope with Base64-encoded fields */
@@ -162,12 +166,12 @@ export interface CredentialResponse {
  */
 export interface CleartextCredentials {
   /** Server's long-term public key (X25519, 32 bytes) */
-  serverPublicKey: Uint8Array
-  /** Server identity (defaults to serverPublicKey if not provided) */
+  serverX25519PublicKey: Uint8Array
+  /** Server identity (defaults to serverX25519PublicKey if not provided) */
   serverIdentity: Uint8Array
   /** Client's long-term public key (X25519, 32 bytes) */
-  clientPublicKey: Uint8Array
-  /** Client identity (defaults to clientPublicKey if not provided) */
+  clientX25519PublicKey: Uint8Array
+  /** Client identity (defaults to clientX25519PublicKey if not provided) */
   clientIdentity: Uint8Array
 }
 
@@ -183,7 +187,7 @@ export interface AuthRequest {
   /** Client's random nonce (32 bytes) */
   clientNonce: Uint8Array
   /** Client's ephemeral public key for this session (X25519, 32 bytes) */
-  clientPublicKeyshare: Uint8Array
+  clientX25519PublicKeyshare: Uint8Array
 }
 
 /**
@@ -198,7 +202,7 @@ export interface AuthResponse {
   /** Server's random nonce (32 bytes) */
   serverNonce: Uint8Array
   /** Server's ephemeral public key for this session (X25519, 32 bytes) */
-  serverPublicKeyshare: Uint8Array
+  serverX25519PublicKeyshare: Uint8Array
   /** Server's authentication MAC (64 bytes for HMAC-SHA512) */
   serverMac: Uint8Array
 }
@@ -230,8 +234,8 @@ export interface KE1Serialized {
   blindedMessage: string
   /** Base64-encoded client nonce */
   clientNonce: string
-  /** Base64-encoded client ephemeral public key */
-  clientPublicKeyshare: string
+  /** Base64-encoded client ephemeral X25519 public key */
+  clientX25519PublicKeyshare: string
 }
 
 /**
@@ -265,8 +269,8 @@ export interface KE2Serialized {
   maskedResponse: string
   /** Base64-encoded server nonce */
   serverNonce: string
-  /** Base64-encoded server ephemeral public key */
-  serverPublicKeyshare: string
+  /** Base64-encoded server ephemeral X25519 public key */
+  serverX25519PublicKeyshare: string
   /** Base64-encoded server authentication MAC */
   serverMac: string
 }
@@ -307,8 +311,8 @@ export interface ClientState {
   password: string
   /** OPRF blinding factor (must be kept secret) */
   blind: Uint8Array
-  /** Client's ephemeral private key for this session (must be kept secret) */
-  clientSecret: Uint8Array
+  /** Client's ephemeral X25519 private key for this session (must be kept secret) */
+  clientX25519PrivateKeyshare: Uint8Array
   /** Copy of the KE1 message for transcript construction */
   ke1: KE1
 }
@@ -387,8 +391,8 @@ export interface ChangePasswordResponseSerialized {
   newPasswordRegistrationResponse: {
     /** Base64-encoded OPRF-evaluated element */
     evaluatedMessage: string
-    /** Base64-encoded server public key */
-    serverPublicKey: string
+    /** Base64-encoded server X25519 public key */
+    serverX25519PublicKey: string
   }
 }
 
@@ -408,8 +412,8 @@ export interface ChangePasswordClientState {
   oldBlind: Uint8Array
   /** OPRF blinding factor for new password */
   newBlind: Uint8Array
-  /** Client's ephemeral private key from old password KE1 */
-  clientSecret: Uint8Array
+  /** Client's ephemeral X25519 private key from old password KE1 */
+  clientX25519PrivateKeyshare: Uint8Array
   /** Copy of the old password KE1 message */
   oldKE1: KE1
 }

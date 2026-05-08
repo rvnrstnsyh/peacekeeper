@@ -45,7 +45,8 @@ export const signUpAlphaSchema = z.object({
 export const signUpBetaSchema = z.object({
   credentialIdentifier: base64Rule('Credential identifier'),
   record: z.object({
-    clientPublicKey: base64Rule('Client public key'),
+    clientED25519PublicKey: base64Rule('ED25519 public key'),
+    clientX25519PublicKey: base64Rule('X25519 public key'),
     maskingKey: base64Rule('Masking key'),
     envelope: z.object({
       nonce: base64Rule('Nonce'),
@@ -87,7 +88,7 @@ export const signInAlphaSchema = z.object({
   ke1: z.object({
     blindedMessage: base64Rule('Blinded message'),
     clientNonce: base64Rule('Nonce'),
-    clientPublicKeyshare: base64Rule('Public keyshare')
+    clientX25519PublicKeyshare: base64Rule('Public keyshare')
   })
 })
 
@@ -116,7 +117,8 @@ export const resetPasswordAlphaSchema = z.object({
 export const resetPasswordBetaSchema = z.object({
   credentialIdentifier: base64Rule('Credential identifier'),
   record: z.object({
-    clientPublicKey: base64Rule('Client public key'),
+    clientED25519PublicKey: base64Rule('ED25519 public key'),
+    clientX25519PublicKey: base64Rule('X25519 public key'),
     maskingKey: base64Rule('Masking key'),
     envelope: z.object({
       nonce: base64Rule('Nonce'),
@@ -136,7 +138,7 @@ export const changePasswordAlphaSchema = z.object({
     oldPasswordKE1: z.object({
       blindedMessage: base64Rule('Blinded message'),
       clientNonce: base64Rule('Nonce'),
-      clientPublicKeyshare: base64Rule('Public keyshare')
+      clientX25519PublicKeyshare: base64Rule('Public keyshare')
     }),
     newPasswordRegistrationRequest: z.object({
       blindedMessage: base64Rule('Blinded message')
@@ -150,13 +152,30 @@ export const changePasswordBetaSchema = z.object({
     clientMac: base64Rule('Client MAC')
   }),
   newRecord: z.object({
-    clientPublicKey: base64Rule('Client public key'),
+    clientED25519PublicKey: base64Rule('ED25519 public key'),
+    clientX25519PublicKey: base64Rule('X25519 public key'),
     maskingKey: base64Rule('Masking key'),
     envelope: z.object({
       nonce: base64Rule('Nonce'),
       authTag: base64Rule('Auth tag'),
       seed: base64Rule('Seed')
     })
+  })
+})
+
+export const securityKeysAlphaSchema = z.object({
+  email: emailRule,
+  ke1: z.object({
+    blindedMessage: base64Rule('Blinded message'),
+    clientNonce: base64Rule('Nonce'),
+    clientX25519PublicKeyshare: base64Rule('Public keyshare')
+  })
+})
+
+export const securityKeysBetaSchema = z.object({
+  credentialIdentifier: base64Rule('Credential identifier'),
+  ke3: z.object({
+    clientMac: base64Rule('Client MAC')
   })
 })
 

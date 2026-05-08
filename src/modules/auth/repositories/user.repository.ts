@@ -70,7 +70,7 @@ export class UserRepository {
   /**
    * Create new user
    */
-  async create(data: SignUpBetaRequestDTO & { role: 'admin' | 'user' }): Promise<User> {
+  async create(data: SignUpBetaRequestDTO & { role: 'administrator' | 'user' }): Promise<User> {
     try {
       const [user]: Array<User> = await db
         .insert(users)

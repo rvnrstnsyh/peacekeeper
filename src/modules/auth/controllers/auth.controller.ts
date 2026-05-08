@@ -27,7 +27,10 @@ import type {
   ChangePasswordBetaRequestDTO,
   ChangePasswordBetaResponseDTO,
   UpdateProfileRequestDTO,
-  SignInAlphaResponseDTO
+  SignInAlphaResponseDTO,
+  SecurityKeysAlphaRequestDTO,
+  SecurityKeysBetaRequestDTO,
+  SecurityKeysBetaResponseDTO
 } from '@/modules/auth/dto/auth.dto'
 
 import { decodeBase64 } from 'hono/utils/encode'
@@ -117,7 +120,7 @@ export class AuthController {
       const signUpAlphaResponse: SignUpAlphaResponseDTO = {
         credentialIdentifier: uint8ArrayToBase64(credentialIdentifier),
         evaluatedMessage: uint8ArrayToBase64(registrationResponse.evaluatedMessage),
-        serverPublicKey: uint8ArrayToBase64(registrationResponse.serverPublicKey)
+        serverX25519PublicKey: uint8ArrayToBase64(registrationResponse.serverX25519PublicKey)
       }
 
       return httpResponse.ok(ctx, 'Registration initialized', undefined, signUpAlphaResponse)
@@ -163,7 +166,7 @@ export class AuthController {
    *   firstName: string,
    *   lastName: string,
    *   phone: string,
-   *   role: 'admin' | 'user',
+   *   role: 'administrator' | 'user',
    *   dateOfBirth: Date,
    *   gender: 'male' | 'female',
    *   address: string
@@ -316,7 +319,7 @@ export class AuthController {
         maxAge: cookieTTL,
         httpOnly: true,
         secure: env.isProduction,
-        sameSite: 'Strict' as const,
+        sameSite: 'Lax' as const,
         priority: 'High' as const,
         partitioned: false,
         prefix: 'secure' as const
@@ -325,7 +328,9 @@ export class AuthController {
       const signInBetaResponse: SignInBetaResponseDTO = {
         user: signInResult.user,
         accessToken: signInResult.tokens.accessToken,
-        expiresIn: signInResult.tokens.expiresIn
+        expiresIn: signInResult.tokens.expiresIn,
+        clientED25519PublicKey: signInResult.clientED25519PublicKey ?? '',
+        clientX25519PublicKey: signInResult.clientX25519PublicKey ?? ''
       }
 
       return httpResponse.ok(ctx, 'Authentication successful', undefined, signInBetaResponse)
@@ -381,7 +386,7 @@ export class AuthController {
         maxAge: refreshCookieTTL,
         httpOnly: true,
         secure: env.isProduction,
-        sameSite: 'Strict' as const,
+        sameSite: 'Lax' as const,
         priority: 'High' as const,
         partitioned: false,
         prefix: 'secure' as const
@@ -528,7 +533,7 @@ export class AuthController {
         maxAge: resetCookieTTL,
         httpOnly: true,
         secure: env.isProduction,
-        sameSite: 'Strict' as const,
+        sameSite: 'Lax' as const,
         priority: 'High' as const,
         partitioned: false,
         prefix: 'secure' as const
@@ -662,7 +667,7 @@ export class AuthController {
         oldPasswordKE2: Serializer.serializeKE2(ke2),
         newPasswordRegistrationResponse: {
           evaluatedMessage: uint8ArrayToBase64(registrationResponse.evaluatedMessage),
-          serverPublicKey: uint8ArrayToBase64(registrationResponse.serverPublicKey)
+          serverX25519PublicKey: uint8ArrayToBase64(registrationResponse.serverX25519PublicKey)
         }
       }
 
@@ -752,7 +757,7 @@ export class AuthController {
         maxAge: changePwCookieTTL,
         httpOnly: true,
         secure: env.isProduction,
-        sameSite: 'Strict' as const,
+        sameSite: 'Lax' as const,
         priority: 'High' as const,
         partitioned: false,
         prefix: 'secure' as const
@@ -909,6 +914,33 @@ export class AuthController {
   }
 
   /**
+   * Get Resend Verification Cooldown
+   *
+   * Returns remaining cooldown seconds before user can resend a verification email.
+   * Returns `{ cooldownSeconds: 0 }` when no cooldown is active.
+   *
+   * @endpoint GET /api/v0/auth/resend-verification/status
+   * @authentication Required
+   * @public
+   */
+  public getResendVerificationStatus = async (ctx: Context<Generics>): Promise<Response> => {
+    try {
+      const session: AccessTokenPayload = ctx.get('session')
+      const userId: string = session._id
+
+      const cooldownSeconds: number = await this.authService.getResendCooldownSeconds(userId)
+
+      return httpResponse.ok(ctx, 'Resend verification status', undefined, { cooldownSeconds })
+    } catch (error: unknown) {
+      logError(error as Error, {
+        controller: 'AuthController',
+        method: 'getResendVerificationStatus'
+      })
+      return httpResponse.internalServerError(ctx, 'Failed to get resend verification status')
+    }
+  }
+
+  /**
    * Sign Out
    *
    * Signs out authenticated user by extracting access token from
@@ -956,6 +988,87 @@ export class AuthController {
       return httpResponse.internalServerError(ctx, 'Sign out failed')
     }
   }
-}
 
-export default AuthController
+  /**
+   * Security Keys Alpha - Phase 1 of OPAQUE-based Security Keys Retrieval
+   *
+   * Initiates security keys retrieval by processing the client's KE1 message,
+   * generating server KE2, and storing OPAQUE state for MAC verification.
+   * Identical in logic to signInAlpha but scoped to key retrieval only.
+   *
+   * @param ctx - Hono context containing email and KE1 message
+   * @returns Response with KE2 message and credential identifier
+   * @endpoint POST /api/v0/auth/security-keys/alpha
+   * @body { email: string, ke1: { blindedMessage, clientNonce, clientPublicKeyshare } }
+   * @public
+   */
+  public securityKeysAlpha = async (ctx: Context<Generics>): Promise<Response> => {
+    const ip: string = remoteAddr(ctx)
+    const userAgent: string = ctx.req.header('user-agent') || 'unknown'
+
+    try {
+      const payload: SecurityKeysAlphaRequestDTO = ctx.get('validatedBody') as SecurityKeysAlphaRequestDTO
+      const ke1: KE1 = Serializer.deserializeKE1(payload.ke1)
+      const { ke2, credentialIdentifier }: ServiceSignInAlphaResultDTO = await this.authService.signInAlpha(payload.email, ke1, env.serverKeyPair, env.oprfSeed, opaque, false)
+
+      logAuth('security_keys_alpha', credentialIdentifier, true, { ip })
+
+      const securityKeysAlphaResponse: SignInAlphaResponseDTO = {
+        credentialIdentifier,
+        ke2: Serializer.serializeKE2(ke2)
+      }
+
+      return httpResponse.ok(ctx, 'Security keys retrieval initialized', undefined, securityKeysAlphaResponse)
+    } catch (error) {
+      const message: string = error instanceof Error ? error.message : 'Unknown error'
+
+      logAuth('security_keys_alpha', ip, false, { ip, userAgent, reason: message })
+      logSecurity('failed_security_keys_alpha', 'medium', { ip, error: message })
+
+      return httpResponse.unauthorized(ctx, 'Invalid credentials')
+    }
+  }
+
+  /**
+   * Security Keys Beta - Phase 2 of OPAQUE-based Security Keys Retrieval
+   *
+   * Completes security keys retrieval by verifying the client's KE3 MAC.
+   * If the MAC is valid (password is correct), returns the user's
+   * OPAQUE client public key. No tokens are issued.
+   *
+   * @param ctx - Hono context containing credential identifier and KE3 message
+   * @returns Response with the user's OPAQUE client public key (base64)
+   * @endpoint POST /api/v0/auth/security-keys/beta
+   * @body { credentialIdentifier: string, ke3: { clientMac: string } }
+   * @public
+   */
+  public securityKeysBeta = async (ctx: Context<Generics>): Promise<Response> => {
+    const ip: string = remoteAddr(ctx)
+    const userAgent: string = ctx.req.header('user-agent') || 'unknown'
+
+    try {
+      const payload: SecurityKeysBetaRequestDTO = ctx.get('validatedBody') as SecurityKeysBetaRequestDTO
+      const ke3: KE3 = Serializer.deserializeKE3(payload.ke3)
+      const result: SecurityKeysBetaResponseDTO = await this.authService.securityKeysBeta(payload.credentialIdentifier, ke3, opaque)
+
+      logAuth('security_keys_beta', ip, true, { ip })
+
+      return httpResponse.ok(ctx, 'Security keys verified', undefined, result)
+    } catch (error) {
+      const message: string = error instanceof Error ? error.message : 'Unknown error'
+
+      logAuth('security_keys_beta', ip, false, { ip, userAgent, reason: message })
+      logSecurity('failed_security_keys_beta', 'high', { ip, error: message })
+
+      if (message.includes('expired') || message.includes('not found')) {
+        return httpResponse.badRequest(ctx, 'Authentication session expired. Please try again.')
+      }
+
+      if (message.includes('MAC verification failed')) {
+        return httpResponse.unauthorized(ctx, 'Invalid credentials')
+      }
+
+      return httpResponse.unauthorized(ctx, 'Authentication failed')
+    }
+  }
+}

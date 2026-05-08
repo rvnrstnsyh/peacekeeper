@@ -95,6 +95,21 @@ class SessionStore {
     this.store.delete(key)
   }
 
+  /**
+   * Returns remaining TTL in seconds.
+   * - Redis: returns redis TTL (-2 = key not found, -1 = no expiry, ≥0 = remaining seconds)
+   * - In-memory fallback: computes remaining seconds from stored expiresAt (0 if missing/expired)
+   */
+  async ttl(key: string): Promise<number> {
+    if (this.isRedisAvailable() && redisClient) {
+      return redisClient.ttl(key)
+    }
+    const entry: MemoryEntry | undefined = this.store.get(key)
+    if (!entry) return -2
+    const remaining: number = Math.ceil((entry.expiresAt - Date.now()) / 1_000)
+    return remaining > 0 ? remaining : -2
+  }
+
   private cleanup(): void {
     const now: number = Date.now()
     for (const [key, entry] of this.store.entries()) {

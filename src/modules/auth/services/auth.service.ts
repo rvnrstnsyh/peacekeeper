@@ -261,7 +261,7 @@ export class AuthService {
     }
 
     const totalUsers: number = await this.userRepository.countAll()
-    const role: 'admin' | 'user' = totalUsers === 0 ? 'admin' : 'user'
+    const role: 'administrator' | 'user' = totalUsers === 0 ? 'administrator' : 'user'
 
     let user: User
     try {
@@ -277,7 +277,8 @@ export class AuthService {
       const newOpaqueEnvelope: NewOpaqueEnvelope = {
         userId,
         credentialIdentifier: credentialIdentifierBuffer,
-        clientPublicKey: uint8ArrayToBuffer(record.clientPublicKey),
+        clientED25519PublicKey: uint8ArrayToBuffer(record.clientED25519PublicKey),
+        clientX25519PublicKey: uint8ArrayToBuffer(record.clientX25519PublicKey),
         maskingKey: uint8ArrayToBuffer(record.maskingKey),
         nonce: uint8ArrayToBuffer(record.envelope.nonce),
         authTag: uint8ArrayToBuffer(record.envelope.authTag),
@@ -378,7 +379,8 @@ export class AuthService {
     }
 
     const record: RegistrationRecord = {
-      clientPublicKey: uint8ArrayToBuffer(envelope.clientPublicKey),
+      clientED25519PublicKey: uint8ArrayToBuffer(envelope.clientED25519PublicKey),
+      clientX25519PublicKey: uint8ArrayToBuffer(envelope.clientX25519PublicKey),
       maskingKey: uint8ArrayToBuffer(envelope.maskingKey),
       envelope: {
         nonce: uint8ArrayToBuffer(envelope.nonce),
@@ -454,8 +456,6 @@ export class AuthService {
     }
 
     const expectedClientMac: Uint8Array = base64ToUint8Array(state.expectedClientMac)
-    // TODO: use sessionKey for encrypted session if needed (E2EE)
-    const _sessionKey: Uint8Array = base64ToUint8Array(state.sessionKey)
     // Verify KE3 - MAC comparison
     const isValid: boolean = opaque.verifyKE3(ke3.clientMac, expectedClientMac)
 
@@ -465,7 +465,10 @@ export class AuthService {
       throw new Error('Invalid authentication - MAC verification failed')
     }
 
-    // Authentication successful - cleanup state
+    // Authentication successful - persist channel key before cleaning up state
+    const channelId: string = Buffer.from(randomBytes(16)).toString('hex')
+    await sessionStore.set(REDIS_KEYS.CHANNEL_KEY(channelId), state.sessionKey, state.rememberMe ? env.sessionRememberMeTTL : env.sessionTTL)
+
     await this.deleteOpaqueState(credentialIdentifier)
 
     const user: User | null = await this.userRepository.findById(state.userId)
@@ -487,12 +490,17 @@ export class AuthService {
           email: user.email,
           username: user.username,
           role: user.role
-        }
+        },
+        channelId
       },
       refreshTokenTTL
     )
 
     await this.storeRefreshToken(userId, tokens.refreshToken, refreshTokenTTL)
+
+    const loginEnvelope: OpaqueEnvelope | null = await this.opaqueEnvelopesRepository.findByUserId(userId)
+    const clientED25519PublicKey: string | undefined = loginEnvelope ? uint8ArrayToBuffer(loginEnvelope.clientED25519PublicKey).toString('base64') : undefined
+    const clientX25519PublicKey: string | undefined = loginEnvelope ? uint8ArrayToBuffer(loginEnvelope.clientX25519PublicKey).toString('base64') : undefined
 
     logger.info('User authenticated successfully', {
       userId,
@@ -500,7 +508,51 @@ export class AuthService {
       ip,
       userAgent
     })
-    return { user: this.sanitizeUser(user), tokens, rememberMe: state.rememberMe }
+    return { user: this.sanitizeUser(user), tokens, rememberMe: state.rememberMe, clientED25519PublicKey, clientX25519PublicKey }
+  }
+
+  /**
+   * Security Keys Beta - Verify Password for Security Keys Access
+   *
+   * Phase 2 of the OPAQUE-based EdDSA key retrieval flow.
+   * Verifies the KE3 MAC to confirm the user knows their password,
+   * then returns the user's OPAQUE client public key.
+   * No tokens are issued — this endpoint is exclusively for key retrieval.
+   *
+   * @param credentialIdentifier - Base64 credential identifier from alpha phase
+   * @param ke3 - Key Exchange message 3 from client containing clientMac
+   * @param opaque - ZeroAccess instance for MAC verification
+   * @returns Object containing the user's OPAQUE client public key (base64)
+   * @throws Error "Authentication session expired or not found" if state not in Redis
+   * @throws Error "Invalid authentication - MAC verification failed" if MAC mismatch
+   * @throws Error "Invalid credentials" if envelope not found
+   * @public
+   */
+  public securityKeysBeta = async (credentialIdentifier: string, ke3: KE3, opaque: ZeroAccess): Promise<{ clientED25519PublicKey: string; clientX25519PublicKey: string }> => {
+    const state = await this.getOpaqueState(credentialIdentifier)
+    if (!state) {
+      throw new Error('Authentication session expired or not found')
+    }
+
+    const expectedClientMac: Uint8Array = base64ToUint8Array(state.expectedClientMac)
+    const isValid: boolean = opaque.verifyKE3(ke3.clientMac, expectedClientMac)
+
+    if (!isValid) {
+      await this.deleteOpaqueState(credentialIdentifier)
+      throw new Error('Invalid authentication - MAC verification failed')
+    }
+
+    await this.deleteOpaqueState(credentialIdentifier)
+
+    const envelope: OpaqueEnvelope | null = await this.opaqueEnvelopesRepository.findByUserId(state.userId)
+    if (!envelope) {
+      throw new Error('Invalid credentials')
+    }
+
+    const clientED25519PublicKey: string = uint8ArrayToBuffer(envelope.clientED25519PublicKey).toString('base64')
+    const clientX25519PublicKey: string = uint8ArrayToBuffer(envelope.clientX25519PublicKey).toString('base64')
+    logger.info('EdDSA key retrieved successfully', { userId: state.userId })
+    return { clientED25519PublicKey, clientX25519PublicKey }
   }
 
   /**
@@ -568,16 +620,17 @@ export class AuthService {
         // access token but re-use the already-current refresh token so both
         // concurrent responses converge on the same refresh token and there is
         // no divergent rotation chain.
-        const userPayload = {
+        const concurrentPayload = {
           user: {
             _id: userId,
             _cid: uint8ArrayToBuffer(envelope.credentialIdentifier).toString('base64'),
             email: user.email,
             username: user.username,
             role: user.role
-          }
+          },
+          channelId: typeof payload._sid === 'string' ? payload._sid : undefined
         }
-        const accessToken: string = await generateAccessToken(userPayload)
+        const accessToken: string = await generateAccessToken(concurrentPayload)
         const decoded: BaseTokenPayload | null = await decodeToken(accessToken)
         const expiresIn: number = decoded?.exp ? decoded.exp - Math.floor(Date.now() / 1000) : 180
         logger.info('Token refreshed successfully', { userId })
@@ -587,6 +640,7 @@ export class AuthService {
       throw new Error('Invalid refresh token')
     }
 
+    const channelIdFromToken: string | undefined = typeof payload._sid === 'string' ? payload._sid : undefined
     const userPayload = {
       user: {
         _id: userId,
@@ -594,7 +648,8 @@ export class AuthService {
         email: user.email,
         username: user.username,
         role: user.role
-      }
+      },
+      channelId: channelIdFromToken
     }
 
     // Derive the Redis TTL from the incoming token's remaining lifetime so that
@@ -604,6 +659,13 @@ export class AuthService {
     // refresh token effectively immortal for active users.  verifyRefreshToken()
     // above already rejects expired tokens, so remainingTTL is always > 0.
     const remainingTTL: number = payload.exp ? payload.exp - Math.floor(Date.now() / 1000) : TTL.REFRESH_TOKEN
+    // If the channel key exists, extend its TTL to match the new token's lifetime.
+    if (channelIdFromToken) {
+      const existingKey: string | null = await sessionStore.get(REDIS_KEYS.CHANNEL_KEY(channelIdFromToken))
+      if (existingKey) {
+        await sessionStore.set(REDIS_KEYS.CHANNEL_KEY(channelIdFromToken), existingKey, remainingTTL)
+      }
+    }
     // Generate new token pair.
     const tokens: TokenPair = await createJwtTokenPair(userPayload, remainingTTL)
 
@@ -732,7 +794,7 @@ export class AuthService {
     return {
       credentialIdentifier: credId,
       evaluatedMessage: uint8ArrayToBuffer(registrationResponse.evaluatedMessage).toString('base64'),
-      serverPublicKey: uint8ArrayToBuffer(registrationResponse.serverPublicKey).toString('base64')
+      serverX25519PublicKey: uint8ArrayToBuffer(registrationResponse.serverX25519PublicKey).toString('base64')
     }
   }
 
@@ -803,7 +865,8 @@ export class AuthService {
       const newOpaqueEnvelope: NewOpaqueEnvelope = {
         userId,
         credentialIdentifier: credentialIdBuffer,
-        clientPublicKey: uint8ArrayToBuffer(newRecord.clientPublicKey),
+        clientED25519PublicKey: uint8ArrayToBuffer(newRecord.clientED25519PublicKey),
+        clientX25519PublicKey: uint8ArrayToBuffer(newRecord.clientX25519PublicKey),
         maskingKey: uint8ArrayToBuffer(newRecord.maskingKey),
         nonce: uint8ArrayToBuffer(newRecord.envelope.nonce),
         authTag: uint8ArrayToBuffer(newRecord.envelope.authTag),
@@ -959,7 +1022,8 @@ export class AuthService {
 
     // Reconstruct registration record for old password verification
     const record: RegistrationRecord = {
-      clientPublicKey: new Uint8Array(envelope.clientPublicKey),
+      clientED25519PublicKey: new Uint8Array(envelope.clientED25519PublicKey),
+      clientX25519PublicKey: new Uint8Array(envelope.clientX25519PublicKey),
       maskingKey: new Uint8Array(envelope.maskingKey),
       envelope: {
         nonce: new Uint8Array(envelope.nonce),
@@ -1085,7 +1149,8 @@ export class AuthService {
     // Update OPAQUE envelope with new password data
     const credentialIdBuffer: Buffer = Buffer.from(credentialIdentifier, 'base64')
     const updatedEnvelopeData = {
-      clientPublicKey: uint8ArrayToBuffer(newRecord.clientPublicKey),
+      clientED25519PublicKey: uint8ArrayToBuffer(newRecord.clientED25519PublicKey),
+      clientX25519PublicKey: uint8ArrayToBuffer(newRecord.clientX25519PublicKey),
       maskingKey: uint8ArrayToBuffer(newRecord.maskingKey),
       nonce: uint8ArrayToBuffer(newRecord.envelope.nonce),
       authTag: uint8ArrayToBuffer(newRecord.envelope.authTag),
@@ -1108,6 +1173,9 @@ export class AuthService {
     // Use env.sessionTTL (rememberMe=false after password change) so that
     // Redis TTL, JWT exp, and cookie maxAge all derive from the same source.
     const refreshTokenTTL: number = env.sessionTTL
+    // Establish a new channel key for the new session (old password verified by KE3)
+    const changePwChannelId: string = Buffer.from(randomBytes(16)).toString('hex')
+    await sessionStore.set(REDIS_KEYS.CHANNEL_KEY(changePwChannelId), state.sessionKey, refreshTokenTTL)
     const tokens: TokenPair = await createJwtTokenPair(
       {
         user: {
@@ -1116,7 +1184,8 @@ export class AuthService {
           email: user.email,
           username: user.username,
           role: user.role
-        }
+        },
+        channelId: changePwChannelId
       },
       refreshTokenTTL
     )
@@ -1244,12 +1313,29 @@ export class AuthService {
       throw new Error('Email already verified')
     }
 
+    const cooldown: string | null = await sessionStore.get(REDIS_KEYS.RESEND_VERIFICATION_COOLDOWN(userId))
+    if (cooldown) {
+      throw new Error('Please wait 5 minutes before requesting another verification email')
+    }
+
     const verificationToken: string = await generateEmailVerificationToken(userId, user.email)
 
+    // Store new token (overwrites any previous — old token becomes invalid on use)
     await sessionStore.set(REDIS_KEYS.VERIFICATION_TOKEN(userId), verificationToken, TTL.VERIFICATION_TOKEN)
+    // Set cooldown so the same user cannot spam resend requests
+    await sessionStore.set(REDIS_KEYS.RESEND_VERIFICATION_COOLDOWN(userId), '1', TTL.RESEND_VERIFICATION_COOLDOWN)
 
     await EmailService.sendVerificationEmail(user.email, verificationToken)
     logger.info('Verification email resent', { userId })
+  }
+
+  /**
+   * Get remaining resend-verification cooldown in seconds.
+   * Returns 0 when no cooldown is active.
+   */
+  public getResendCooldownSeconds = async (userId: string): Promise<number> => {
+    const remaining: number = await sessionStore.ttl(REDIS_KEYS.RESEND_VERIFICATION_COOLDOWN(userId))
+    return remaining > 0 ? remaining : 0
   }
 
   /**
@@ -1285,6 +1371,15 @@ export class AuthService {
       await sessionStore.set(`blacklist:${token}`, '1', ttl)
     }
     await sessionStore.del(REDIS_KEYS.REFRESH_TOKEN(userId))
+    // Also remove the previous-token grace window so concurrent refresh
+    // requests cannot succeed after sign-out.
+    await sessionStore.del(REDIS_KEYS.REFRESH_TOKEN_PREV(userId))
+    // Delete the channel encryption key so decryption is no longer possible
+    // for this session after sign-out.
+    const channelId: string | undefined = typeof decoded?._sid === 'string' ? decoded._sid : undefined
+    if (channelId) {
+      await sessionStore.del(REDIS_KEYS.CHANNEL_KEY(channelId))
+    }
     logger.info('User signed out successfully', { userId })
   }
 }

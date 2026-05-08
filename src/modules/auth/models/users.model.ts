@@ -9,7 +9,7 @@ import { boolean, date, pgEnum, pgTable, primaryKey, text, timestamp, unique, uu
 /**
  * User role enumeration
  */
-export const roleEnum: PgEnum<['admin', 'user']> = pgEnum('role', ['admin', 'user'])
+export const roleEnum: PgEnum<['administrator', 'user']> = pgEnum('role', ['administrator', 'user'])
 
 /**
  * Gender enumeration
@@ -97,7 +97,7 @@ export function hasRole(user: User, role: string | Array<string>): boolean {
 }
 
 export function isAdmin(user: User): boolean {
-  return user.role === 'admin'
+  return user.role === 'administrator'
 }
 
 export function isEmailVerified(user: User): boolean {

@@ -35,7 +35,10 @@ export function validateRequest(schema: z.Schema, target: ValidationTarget = 'bo
           break
         }
         case 'body': {
-          data = await ctx.req.json()
+          // If channel encryption middleware already decrypted the body, use
+          // that value; otherwise read it directly from the raw request.
+          const preDecrypted: unknown = ctx.get('decryptedBody')
+          data = preDecrypted !== undefined ? preDecrypted : await ctx.req.json()
           break
         }
         case 'query': {

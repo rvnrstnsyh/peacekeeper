@@ -29,7 +29,9 @@ export const opaqueEnvelopes = pgTable(
     credentialIdentifier: bytea('credential_identifier').notNull(),
 
     // RFC 9807 RegistrationRecord fields
-    clientPublicKey: bytea('client_public_key').notNull(),
+    // ED25519 signing public key (Option B: HKDF label separation)
+    clientED25519PublicKey: bytea('ed25519_public_key').notNull(),
+    clientX25519PublicKey: bytea('x25519_public_key').notNull(),
     maskingKey: bytea('masking_key').notNull(),
     nonce: bytea('nonce').notNull(),
     authTag: bytea('auth_tag').notNull(),
@@ -80,7 +82,8 @@ export type OpaqueEnvelopeUpdate = Partial<Omit<NewOpaqueEnvelope, '_id' | 'user
 
 export function toRegistrationRecord(envelope: OpaqueEnvelope): RegistrationRecord {
   return {
-    clientPublicKey: bufferToUint8Array(envelope.clientPublicKey),
+    clientED25519PublicKey: bufferToUint8Array(envelope.clientED25519PublicKey),
+    clientX25519PublicKey: bufferToUint8Array(envelope.clientX25519PublicKey),
     maskingKey: bufferToUint8Array(envelope.maskingKey),
     envelope: {
       nonce: bufferToUint8Array(envelope.nonce),
@@ -100,7 +103,8 @@ export function fromRegistrationRecord(
   return {
     userId,
     credentialIdentifier: uint8ArrayToBuffer(credentialIdentifier),
-    clientPublicKey: uint8ArrayToBuffer(record.clientPublicKey),
+    clientED25519PublicKey: uint8ArrayToBuffer(record.clientED25519PublicKey),
+    clientX25519PublicKey: uint8ArrayToBuffer(record.clientX25519PublicKey),
     maskingKey: uint8ArrayToBuffer(record.maskingKey),
     nonce: uint8ArrayToBuffer(record.envelope.nonce),
     authTag: uint8ArrayToBuffer(record.envelope.authTag),

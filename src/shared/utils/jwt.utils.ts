@@ -75,16 +75,14 @@ export async function generateAccessToken(payload: TokenGenerationPayload): Prom
 
     // Import JWK as crypto key
     const privateKey: CryptoKey | Uint8Array = await importJWK(signingKey.sec, 'EdDSA')
-    // Build token payload with index signature for JOSE compatibility
-    const tokenPayload: Record<string, unknown> = {}
-
-    // Add user object if provided
-    if (payload.user) {
-      const { _id, _cid, ...restUser }: TokenUser = payload.user
-      tokenPayload._id = _id
-      tokenPayload._cid = _cid
-      tokenPayload.type = 'access'
-      tokenPayload.user = restUser
+    // Build token payload — _id, _cid, _sid always lead in that order
+    const { _id, _cid, ...restUser }: TokenUser = payload.user as TokenUser
+    const tokenPayload: Record<string, unknown> = {
+      _id,
+      _cid,
+      ...(payload.channelId !== undefined ? { _sid: payload.channelId } : {}),
+      type: 'access',
+      user: restUser
     }
 
     const expiresIn: number = parseDuration(env.JWT_ACCESS_EXPIRES_IN)
@@ -123,14 +121,13 @@ export async function generateRefreshToken(payload: TokenGenerationPayload, expi
 
     // Import JWK as crypto key
     const privateKey: CryptoKey | Uint8Array = await importJWK(signingKey.sec, 'EdDSA')
-    // Build token payload with index signature for JOSE compatibility
-    const tokenPayload: Record<string, unknown> = {}
-    // Add user object if provided
-    if (payload.user) {
-      tokenPayload._id = payload.user._id
-      tokenPayload._cid = payload.user._cid
+    // Build token payload — _id, _cid, _sid always lead in that order
+    const tokenPayload: Record<string, unknown> = {
+      _id: payload.user?._id,
+      _cid: payload.user?._cid,
+      ...(payload.channelId !== undefined ? { _sid: payload.channelId } : {}),
+      type: 'refresh'
     }
-    tokenPayload.type = 'refresh'
 
     const tokenExpiresIn: number = expiresIn ?? parseDuration(env.JWT_REFRESH_EXPIRES_IN)
     const token: string = await new SignJWT(tokenPayload)

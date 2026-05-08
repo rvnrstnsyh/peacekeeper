@@ -150,7 +150,7 @@ export class ZeroAccess {
 
     Helpers.secureZeroMultiple(seed, oprfKey)
 
-    return { evaluatedMessage: evaluatedElement, serverPublicKey }
+    return { evaluatedMessage: evaluatedElement, serverX25519PublicKey: serverPublicKey }
   }
 
   /**
@@ -171,7 +171,8 @@ export class ZeroAccess {
    * @returns Object containing:
    *   - record: The registration record to store on server
    *   - exportKey: Additional key for application use
-   *   - clientKeypairSeed: The client's keypair seed (should be stored securely)
+   *   - clientKeypairSeed: The client's master keypair seed — must NOT be
+   *     stored anywhere; zero immediately after use
    * @see RFC 9807 Section 5.1.3 - Client finalizes registration
    * @public
    */
@@ -184,7 +185,8 @@ export class ZeroAccess {
   ): {
     record: RegistrationRecord
     exportKey: Uint8Array
-    clientKeypairSeed: Uint8Array
+    clientED25519PublicKey: Uint8Array
+    clientX25519KeypairSeed: Uint8Array
   } {
     const passwordBytes: Uint8Array = new TextEncoder().encode(password)
     const oprfOutput: Uint8Array = Helpers.finalize(passwordBytes, blind, response.evaluatedMessage)
@@ -192,16 +194,23 @@ export class ZeroAccess {
     const mhfSalt: Uint8Array = Helpers.expand(oprfOutput, new TextEncoder().encode('OPAQUE-HashToScalar'), 16)
     const hardenedOutput: Uint8Array = Helpers.hardening(oprfOutput, mhfSalt)
     const randomizedPassword: Uint8Array = Helpers.extract(null, Helpers.concat(oprfOutput, hardenedOutput))
-    const clientKeypairSeed: Uint8Array = randomBytes(CONFIG.Nseed)
+    const clientX25519KeypairSeed: Uint8Array = randomBytes(CONFIG.Nseed)
 
-    const { envelope, clientPublicKey, maskingKey, exportKey } = Helpers.store(randomizedPassword, response.serverPublicKey, serverIdentity, clientIdentity, clientKeypairSeed)
+    const { envelope, clientX25519PublicKey, maskingKey, exportKey, clientED25519PublicKey } = Helpers.store(
+      randomizedPassword,
+      response.serverX25519PublicKey,
+      serverIdentity,
+      clientIdentity,
+      clientX25519KeypairSeed
+    )
 
     Helpers.secureZeroMultiple(passwordBytes, oprfOutput, mhfSalt, hardenedOutput, randomizedPassword)
 
     return {
-      record: { clientPublicKey, maskingKey, envelope },
+      record: { clientED25519PublicKey, clientX25519PublicKey, maskingKey, envelope },
       exportKey,
-      clientKeypairSeed
+      clientED25519PublicKey,
+      clientX25519KeypairSeed
     }
   }
 
@@ -227,13 +236,13 @@ export class ZeroAccess {
     const clientNonce: Uint8Array = randomBytes(CONFIG.Nn)
     const clientKeyshareSeed: Uint8Array = randomBytes(CONFIG.Nseed)
 
-    const { privateKey: clientSecret, publicKey: clientPublicKeyshare } = Helpers.deriveDiffieHellmanKeyPair(clientKeyshareSeed)
+    const { privateKey: clientX25519PrivateKeyshare, publicKey: clientX25519PublicKeyshare } = Helpers.deriveDiffieHellmanKeyPair(clientKeyshareSeed)
 
     Helpers.secureZero(clientKeyshareSeed)
 
-    const authRequest: AuthRequest = { clientNonce, clientPublicKeyshare }
+    const authRequest: AuthRequest = { clientNonce, clientX25519PublicKeyshare }
     const ke1: KE1 = { credentialRequest: request, authRequest }
-    const state: ClientState = { password, blind, clientSecret, ke1 }
+    const state: ClientState = { password, blind, clientX25519PrivateKeyshare, ke1 }
 
     return { ke1, state }
   }
@@ -282,8 +291,8 @@ export class ZeroAccess {
     Helpers.validateX25519PublicKey(serverPublicKey)
     Helpers.validateRistretto255Element(ke1.credentialRequest.blindedMessage)
     Helpers.validateNonce(ke1.authRequest.clientNonce)
-    Helpers.validateX25519PublicKey(ke1.authRequest.clientPublicKeyshare)
-    Helpers.validateX25519PublicKey(record.clientPublicKey)
+    Helpers.validateX25519PublicKey(ke1.authRequest.clientX25519PublicKeyshare)
+    Helpers.validateX25519PublicKey(record.clientX25519PublicKey)
     Helpers.validateEnvelope(record.envelope)
 
     if (record.maskingKey.length !== CONFIG.Nh) {
@@ -299,17 +308,17 @@ export class ZeroAccess {
     }
 
     const credentialResponse: CredentialResponse = Helpers.createCredentialResponse(ke1.credentialRequest, serverPublicKey, record, credentialIdentifier, oprfSeed)
-    const cleartextCredentials: CleartextCredentials = Helpers.createCleartextCredentials(serverPublicKey, record.clientPublicKey, serverIdentity, clientIdentity)
+    const cleartextCredentials: CleartextCredentials = Helpers.createCleartextCredentials(serverPublicKey, record.clientX25519PublicKey, serverIdentity, clientIdentity)
     const serverNonce: Uint8Array = randomBytes(CONFIG.Nn)
     const serverKeyshareSeed: Uint8Array = randomBytes(CONFIG.Nseed)
 
-    const { privateKey: serverPrivateKeyshare, publicKey: serverPublicKeyshare } = Helpers.deriveDiffieHellmanKeyPair(serverKeyshareSeed)
+    const { privateKey: serverX25519PrivateKeyshare, publicKey: serverX25519PublicKeyshare } = Helpers.deriveDiffieHellmanKeyPair(serverKeyshareSeed)
 
-    const preamble: Uint8Array = Helpers.preamble(cleartextCredentials.clientIdentity, ke1, cleartextCredentials.serverIdentity, credentialResponse, serverNonce, serverPublicKeyshare)
+    const preamble: Uint8Array = Helpers.preamble(cleartextCredentials.clientIdentity, ke1, cleartextCredentials.serverIdentity, credentialResponse, serverNonce, serverX25519PublicKeyshare)
     // Triple DH
-    const dh1: Uint8Array = Helpers.diffieHellman(serverPrivateKeyshare, ke1.authRequest.clientPublicKeyshare)
-    const dh2: Uint8Array = Helpers.diffieHellman(serverPrivateKey, ke1.authRequest.clientPublicKeyshare)
-    const dh3: Uint8Array = Helpers.diffieHellman(serverPrivateKeyshare, record.clientPublicKey)
+    const dh1: Uint8Array = Helpers.diffieHellman(serverX25519PrivateKeyshare, ke1.authRequest.clientX25519PublicKeyshare)
+    const dh2: Uint8Array = Helpers.diffieHellman(serverPrivateKey, ke1.authRequest.clientX25519PublicKeyshare)
+    const dh3: Uint8Array = Helpers.diffieHellman(serverX25519PrivateKeyshare, record.clientX25519PublicKey)
     const ikm: Uint8Array = Helpers.concat(dh1, dh2, dh3)
 
     const { km2, km3, sessionKey } = Helpers.deriveKeys(ikm, preamble)
@@ -318,11 +327,11 @@ export class ZeroAccess {
     const serverMac: Uint8Array = hmac(sha512, km2, preambleHash)
     const expectedClientMac: Uint8Array = hmac(sha512, km3, sha512(Helpers.concat(preamble, serverMac)))
 
-    Helpers.secureZeroMultiple(serverKeyshareSeed, serverPrivateKeyshare, dh1, dh2, dh3, ikm, km2, km3, preambleHash)
+    Helpers.secureZeroMultiple(serverKeyshareSeed, serverX25519PrivateKeyshare, dh1, dh2, dh3, ikm, km2, km3, preambleHash)
 
     const authResponse: AuthResponse = {
       serverNonce,
-      serverPublicKeyshare,
+      serverX25519PublicKeyshare,
       serverMac
     }
 
@@ -356,7 +365,9 @@ export class ZeroAccess {
    *   - ke3: The KE3 message to send to server
    *   - sessionKey: The authenticated session key
    *   - exportKey: Additional key for application use
-   *   - clientKeypairSeed: The recovered client keypair seed
+   *   - clientED25519PublicKey: The client's ED25519 signing public key
+   *   - clientX25519KeypairSeed: The recovered master seed — must NOT be stored
+   *     anywhere; zero immediately after use
    * @throws {Error} ServerAuthenticationError if server MAC verification fails.
    * @see RFC 9807 Section 6.2.5 - Client generates KE3
    * @public
@@ -370,15 +381,22 @@ export class ZeroAccess {
     ke3: KE3
     sessionKey: Uint8Array
     exportKey: Uint8Array
-    clientKeypairSeed: Uint8Array
+    clientED25519PublicKey: Uint8Array
+    clientX25519KeypairSeed: Uint8Array
   } {
     Helpers.validateRistretto255Element(ke2.credentialResponse.evaluatedMessage)
     Helpers.validateNonce(ke2.credentialResponse.maskingNonce)
     Helpers.validateNonce(ke2.authResponse.serverNonce)
-    Helpers.validateX25519PublicKey(ke2.authResponse.serverPublicKeyshare)
+    Helpers.validateX25519PublicKey(ke2.authResponse.serverX25519PublicKeyshare)
     Helpers.validateMAC(ke2.authResponse.serverMac)
 
-    const { clientPrivateKey, clientKeypairSeed, cleartextCredentials, exportKey } = Helpers.recoverCredentials(state.password, state.blind, ke2.credentialResponse, serverIdentity, clientIdentity)
+    const { clientX25519PrivateKey, clientX25519KeypairSeed, cleartextCredentials, exportKey, clientED25519PublicKey } = Helpers.recoverCredentials(
+      state.password,
+      state.blind,
+      ke2.credentialResponse,
+      serverIdentity,
+      clientIdentity
+    )
 
     const preamble: Uint8Array = Helpers.preamble(
       cleartextCredentials.clientIdentity,
@@ -386,13 +404,13 @@ export class ZeroAccess {
       cleartextCredentials.serverIdentity,
       ke2.credentialResponse,
       ke2.authResponse.serverNonce,
-      ke2.authResponse.serverPublicKeyshare
+      ke2.authResponse.serverX25519PublicKeyshare
     )
 
     // Triple DH
-    const dh1: Uint8Array = Helpers.diffieHellman(state.clientSecret, ke2.authResponse.serverPublicKeyshare)
-    const dh2: Uint8Array = Helpers.diffieHellman(state.clientSecret, cleartextCredentials.serverPublicKey)
-    const dh3: Uint8Array = Helpers.diffieHellman(clientPrivateKey, ke2.authResponse.serverPublicKeyshare)
+    const dh1: Uint8Array = Helpers.diffieHellman(state.clientX25519PrivateKeyshare, ke2.authResponse.serverX25519PublicKeyshare)
+    const dh2: Uint8Array = Helpers.diffieHellman(state.clientX25519PrivateKeyshare, cleartextCredentials.serverX25519PublicKey)
+    const dh3: Uint8Array = Helpers.diffieHellman(clientX25519PrivateKey, ke2.authResponse.serverX25519PublicKeyshare)
     const ikm: Uint8Array = Helpers.concat(dh1, dh2, dh3)
 
     const { km2, km3, sessionKey } = Helpers.deriveKeys(ikm, preamble)
@@ -401,16 +419,16 @@ export class ZeroAccess {
     const expectedServerMac: Uint8Array = hmac(sha512, km2, preambleHash)
 
     if (!Helpers.ctEqual(ke2.authResponse.serverMac, expectedServerMac)) {
-      Helpers.secureZeroMultiple(clientPrivateKey, exportKey, clientKeypairSeed, dh1, dh2, dh3, ikm, km2, km3, sessionKey, preambleHash)
+      Helpers.secureZeroMultiple(clientX25519PrivateKey, exportKey, clientX25519KeypairSeed, dh1, dh2, dh3, ikm, km2, km3, sessionKey, preambleHash)
       throw new Error('ServerAuthenticationError: Invalid server MAC')
     }
 
     const clientMac: Uint8Array = hmac(sha512, km3, sha512(Helpers.concat(preamble, expectedServerMac)))
     const ke3: KE3 = { clientMac }
 
-    Helpers.secureZeroMultiple(clientPrivateKey, dh1, dh2, dh3, ikm, km2, km3, expectedServerMac, preambleHash)
+    Helpers.secureZeroMultiple(clientX25519PrivateKey, dh1, dh2, dh3, ikm, km2, km3, expectedServerMac, preambleHash)
 
-    return { ke3, sessionKey, exportKey, clientKeypairSeed }
+    return { ke3, sessionKey, exportKey, clientED25519PublicKey, clientX25519KeypairSeed }
   }
 
   /**
@@ -534,7 +552,7 @@ export class ZeroAccess {
       newPassword,
       oldBlind: oldState.blind,
       newBlind,
-      clientSecret: oldState.clientSecret,
+      clientX25519PrivateKeyshare: oldState.clientX25519PrivateKeyshare,
       oldKE1
     }
 
@@ -623,13 +641,13 @@ export class ZeroAccess {
   } {
     const {
       ke3,
-      clientKeypairSeed,
+      clientX25519KeypairSeed,
       exportKey: _exportKey
     } = this.generateKE3(
       {
         password: state.oldPassword,
         blind: state.oldBlind,
-        clientSecret: state.clientSecret,
+        clientX25519PrivateKeyshare: state.clientX25519PrivateKeyshare,
         ke1: state.oldKE1
       },
       response.oldPasswordKE2,
@@ -645,18 +663,20 @@ export class ZeroAccess {
 
     const {
       envelope,
-      clientPublicKey,
+      clientED25519PublicKey,
+      clientX25519PublicKey,
       maskingKey,
       exportKey: newExportKey
-    } = Helpers.store(randomizedPassword, response.newPasswordRegistrationResponse.serverPublicKey, serverIdentity, clientIdentity, clientKeypairSeed)
+    } = Helpers.store(randomizedPassword, response.newPasswordRegistrationResponse.serverX25519PublicKey, serverIdentity, clientIdentity, clientX25519KeypairSeed)
 
     const newRecord: RegistrationRecord = {
-      clientPublicKey,
+      clientED25519PublicKey,
+      clientX25519PublicKey,
       maskingKey,
       envelope
     }
 
-    Helpers.secureZeroMultiple(newPasswordBytes, oprfOutput, mhfSalt, hardenedOutput, randomizedPassword, clientKeypairSeed)
+    Helpers.secureZeroMultiple(newPasswordBytes, oprfOutput, mhfSalt, hardenedOutput, randomizedPassword, clientX25519KeypairSeed)
 
     return { ke3, newRecord, exportKey: newExportKey }
   }

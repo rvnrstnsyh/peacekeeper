@@ -245,7 +245,9 @@ export function logAuth(
     | 'change_password_beta'
     | 'token_refresh'
     | 'reset_password_alpha'
-    | 'reset_password_beta',
+    | 'reset_password_beta'
+    | 'security_keys_alpha'
+    | 'security_keys_beta',
   userId: string | number,
   success: boolean,
   metadata?: Record<string, unknown>
