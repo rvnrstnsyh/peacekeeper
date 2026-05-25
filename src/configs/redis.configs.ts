@@ -67,7 +67,14 @@ export async function connectRedis(): Promise<RedisClientType | null> {
         host: config.host,
         port: config.port,
         connectTimeout: config.connectionTimeout,
-        reconnectStrategy: createReconnectStrategy(config)
+        reconnectStrategy: createReconnectStrategy(config),
+        // Keep the TCP connection alive so AWS NAT / cloud load-balancers (which
+        // silently kill idle TCP connections after ~5 minutes) do not drop the
+        // socket between requests.  OS-level TCP keepAlive alone has a default
+        // probe interval of 2 hours which is far too long; we complement it with
+        // an application-level PING every 60 s (see setupEventHandlers).
+        keepAlive: true,
+        noDelay: true // disable Nagle; avoids latency spikes on small commands
       },
       password: config.password || undefined,
       database: config.db,
@@ -111,16 +118,20 @@ function createReconnectStrategy(config: RedisConfig) {
       return new Error('Max reconnection attempts exceeded')
     }
 
-    // Delay (exponential capped)
+    // Exponential back-off with a 200 ms floor so we never hammer the server
+    // on the very first retry (retries=0 → 0 ms with the old formula).
     const delay: number = Math.min(
-      config.retryDelay * retries,
-      30000 // hard cap
+      Math.max(config.retryDelay * Math.pow(2, retries), 200),
+      30_000 // hard cap at 30 s
     )
 
     logger.warning(`Redis reconnecting in ${delay}ms (attempt ${retries}/${config.maxRetries})`)
     return delay
   }
 }
+
+// Application-level keepalive timer (set on 'ready', cleared on 'end')
+let pingTimer: ReturnType<typeof setInterval> | null = null
 
 /**
  * Setup Redis event handlers
@@ -140,6 +151,18 @@ function setupEventHandlers(client: RedisClientType, config: RedisConfig): void 
   client.on('ready', (): void => {
     logger.info('Redis client ready for commands')
     lastReconnectAttempt = 0
+    // Application-level keepalive: send PING every 60 s so the TCP connection
+    // is never idle long enough for AWS NAT / RedisLabs to silently drop it.
+    if (pingTimer) clearInterval(pingTimer)
+    pingTimer = setInterval(async () => {
+      if (!client.isOpen) return
+      try {
+        await client.ping()
+      } catch {
+        // error handler above will log; reconnect strategy handles recovery
+      }
+    }, 60_000)
+    if (pingTimer.unref) pingTimer.unref() // don't block process exit
   })
 
   client.on('reconnecting', (): void => {
@@ -150,6 +173,10 @@ function setupEventHandlers(client: RedisClientType, config: RedisConfig): void 
 
   client.on('end', (): void => {
     logger.info('Redis connection closed')
+    if (pingTimer) {
+      clearInterval(pingTimer)
+      pingTimer = null
+    }
   })
 }
 

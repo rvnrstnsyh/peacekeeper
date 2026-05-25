@@ -6,10 +6,14 @@ import type { KE1, KE2, KE3, RegistrationRecord, RegistrationRequest, Registrati
 import type {
   // Service DTOs
   ServiceRefreshTokenResultDTO,
+  ServiceResetPasswordBetaResultDTO,
   ServiceSignInAlphaResultDTO,
   ServiceSignInBetaResultDTO,
   ServiceSignUpBetaResultDTO,
   ServiceUserProfileResultDTO,
+  SessionDTO,
+  RevokeSessionResultDTO,
+  GetSessionsResponseDTO,
   // Request DTOs
   SignUpAlphaRequestDTO,
   SignUpAlphaResponseDTO,
@@ -520,30 +524,11 @@ export class AuthController {
     try {
       const payload: ResetPasswordBetaRequestDTO = ctx.get('validatedBody') as ResetPasswordBetaRequestDTO
       const newRecord: RegistrationRecord = Serializer.deserializeRegistrationRecord(payload.record)
-      const result: ServiceSignInBetaResultDTO = await this.authService.resetPasswordBeta(payload.credentialIdentifier, newRecord, env.OPAQUE_CONTEXT, ip, userAgent)
+      const result: ServiceResetPasswordBetaResultDTO = await this.authService.resetPasswordBeta(payload.credentialIdentifier, newRecord, env.OPAQUE_CONTEXT, ip, userAgent)
 
-      logAuth('reset_password_beta', result.user._id, true, { email: result.user.email, ip })
+      logAuth('reset_password_beta', result.userId, true, { ip })
 
-      const resetCookieTTL: number = await getTokenRemainingTime(result.tokens.refreshToken)
-
-      setCookie(ctx, 'Refresh-Token', result.tokens.refreshToken, {
-        domain: undefined,
-        path: '/',
-        expires: new Date(Date.now() + resetCookieTTL * 1000),
-        maxAge: resetCookieTTL,
-        httpOnly: true,
-        secure: env.isProduction,
-        sameSite: 'Lax' as const,
-        priority: 'High' as const,
-        partitioned: false,
-        prefix: 'secure' as const
-      })
-
-      return httpResponse.ok(ctx, 'Password reset successful', undefined, {
-        user: result.user,
-        accessToken: result.tokens.accessToken,
-        expiresIn: result.tokens.expiresIn
-      })
+      return httpResponse.ok(ctx, 'Password reset successful. Please sign in with your new password.')
     } catch (error) {
       const message: string = error instanceof Error ? error.message : 'Unknown error'
 
@@ -986,6 +971,115 @@ export class AuthController {
         method: 'signOut'
       })
       return httpResponse.internalServerError(ctx, 'Sign out failed')
+    }
+  }
+
+  // ============================================================================
+  // Session Management
+  // ============================================================================
+
+  /**
+   * GET /sessions
+   *
+   * Returns all active (non-expired, non-revoked) sessions for the authenticated
+   * user. Each session object includes IP, user-agent, timestamps, and a
+   * `isCurrent` flag that marks the caller's own session.
+   *
+   * @endpoint GET /api/v0/auth/sessions
+   * @authentication Required
+   * @public
+   */
+  public getSessions = async (ctx: Context<Generics>): Promise<Response> => {
+    try {
+      const session: AccessTokenPayload = ctx.get('session')
+      const userId: string = session._id
+      const currentChannelId: string = typeof session._sid === 'string' ? session._sid : ''
+
+      const sessions: Array<SessionDTO> = await this.authService.getSessions(userId, currentChannelId)
+
+      const response: GetSessionsResponseDTO = { sessions }
+      return httpResponse.ok(ctx, 'Sessions retrieved', undefined, response)
+    } catch (error: unknown) {
+      logError(error as Error, { controller: 'AuthController', method: 'getSessions' })
+      return httpResponse.internalServerError(ctx, 'Failed to retrieve sessions')
+    }
+  }
+
+  /**
+   * DELETE /sessions/:sessionId
+   *
+   * Revokes a single session. The session must belong to the authenticated user.
+   * If the revoked session is the caller's own (`isSelf = true`), the access
+   * token is blacklisted and the refresh-token cookie is cleared so the browser
+   * is immediately signed out.
+   *
+   * @param sessionId - DB UUID of the session to revoke (path parameter)
+   * @endpoint DELETE /api/v0/auth/sessions/:sessionId
+   * @authentication Required
+   * @public
+   */
+  public revokeSession = async (ctx: Context<Generics>): Promise<Response> => {
+    try {
+      const session: AccessTokenPayload = ctx.get('session')
+      const userId: string = session._id
+      const currentChannelId: string = typeof session._sid === 'string' ? session._sid : ''
+      const sessionId: string = ctx.req.param('sessionId') ?? ''
+      const token: string | null = this.extractToken(ctx)
+
+      if (!token) {
+        return httpResponse.unauthorized(ctx)
+      }
+
+      const result: RevokeSessionResultDTO = await this.authService.revokeSession(userId, sessionId, currentChannelId, token)
+
+      logAuth('revoke_session', userId, true, { sessionId, isSelf: result.isSelf, ip: remoteAddr(ctx) })
+
+      if (result.isSelf) {
+        deleteCookie(ctx, 'Refresh-Token', { path: '/', prefix: 'secure' as const })
+      }
+
+      return httpResponse.ok(ctx, result.isSelf ? 'Signed out successfully' : 'Session revoked', undefined, { isSelf: result.isSelf })
+    } catch (error: unknown) {
+      const message: string = error instanceof Error ? error.message : 'Unknown error'
+      logError(error as Error, { controller: 'AuthController', method: 'revokeSession' })
+
+      if (message.includes('not found')) {
+        return httpResponse.notFound(ctx, 'Session not found')
+      }
+      return httpResponse.internalServerError(ctx, 'Failed to revoke session')
+    }
+  }
+
+  /**
+   * DELETE /sessions
+   *
+   * Revokes ALL active sessions for the authenticated user (sign out everywhere).
+   * The caller's access token is blacklisted and the refresh-token cookie is cleared.
+   *
+   * @endpoint DELETE /api/v0/auth/sessions
+   * @authentication Required
+   * @public
+   */
+  public revokeAllSessions = async (ctx: Context<Generics>): Promise<Response> => {
+    try {
+      const session: AccessTokenPayload = ctx.get('session')
+      const userId: string = session._id
+      const token: string | null = this.extractToken(ctx)
+
+      if (!token) {
+        return httpResponse.unauthorized(ctx)
+      }
+
+      await this.authService.revokeAllSessions(userId, token)
+
+      logAuth('revoke_all_sessions', userId, true, { ip: remoteAddr(ctx) })
+
+      deleteCookie(ctx, 'Refresh-Token', { path: '/', prefix: 'secure' as const })
+
+      return httpResponse.ok(ctx, 'Signed out from all devices')
+    } catch (error: unknown) {
+      logError(error as Error, { controller: 'AuthController', method: 'revokeAllSessions' })
+      return httpResponse.internalServerError(ctx, 'Failed to sign out from all devices')
     }
   }
 

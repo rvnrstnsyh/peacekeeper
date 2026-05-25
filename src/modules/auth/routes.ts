@@ -18,7 +18,8 @@ import {
   updateProfileSchema,
   verifyEmailSchema,
   securityKeysAlphaSchema,
-  securityKeysBetaSchema
+  securityKeysBetaSchema,
+  sessionIdParamSchema
 } from '@/modules/auth/validators/auth.validators'
 
 const endpoint: Hono<Generics> = new Hono<Generics>()
@@ -53,5 +54,9 @@ endpoint
   .post('/resend-verification', auth, chanEnc, controller.resendVerification)
   .get('/resend-verification/status', auth, controller.getResendVerificationStatus)
   .delete('/sign-out', auth, chanEnc, validateCookies(refreshTokenSchema), controller.signOut)
+  // ── Session management — list, revoke one, revoke all
+  .get('/sessions', auth, chanEnc, controller.getSessions)
+  .delete('/sessions', auth, chanEnc, controller.revokeAllSessions)
+  .delete('/sessions/:sessionId', auth, chanEnc, validateParams(sessionIdParamSchema), controller.revokeSession)
 
 export default endpoint

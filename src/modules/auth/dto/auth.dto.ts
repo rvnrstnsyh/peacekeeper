@@ -157,7 +157,7 @@ export interface UpdateProfileRequestDTO {
   lastName?: string
   phone?: string
   dateOfBirth?: string
-  gender?: 'male' | 'female'
+  gender?: 'male' | 'female' | null
   address?: string
   avatar?: string | null
 }
@@ -380,6 +380,47 @@ export interface ResendVerificationResponseDTO {
 }
 
 // ============================================================================
+// SESSION MANAGEMENT DTOs
+// ============================================================================
+
+/**
+ * Single session info returned by GET /sessions
+ */
+export interface SessionDTO {
+  /** DB primary key (UUID) — used as the identifier for revoke requests */
+  _id: string
+  /** Client IP at login time */
+  ip?: string | null
+  /** Raw User-Agent at login time */
+  userAgent?: string | null
+  /** Whether the session was created with "remember me" */
+  isRememberMe: boolean
+  /** When the session was created */
+  createdAt: Date
+  /** When a token refresh last occurred (null on first login) */
+  lastSeenAt?: Date | null
+  /** When the refresh token (and thus the session) expires */
+  expiresAt: Date
+  /** True when this entry matches the caller's current session */
+  isCurrent: boolean
+}
+
+/**
+ * GET /sessions response
+ */
+export interface GetSessionsResponseDTO {
+  sessions: Array<SessionDTO>
+}
+
+/**
+ * Result returned by revokeSession service — indicates whether the caller
+ * signed themselves out so the controller can clear the cookie.
+ */
+export interface RevokeSessionResultDTO {
+  isSelf: boolean
+}
+
+// ============================================================================
 // SERVICE DTOs - Internal data structures for service layer
 // ============================================================================
 
@@ -409,6 +450,14 @@ export interface ServiceSignInBetaResultDTO {
   rememberMe: boolean
   clientED25519PublicKey?: string
   clientX25519PublicKey?: string
+}
+
+/**
+ * Internal DTO for service layer - reset password beta result
+ * Does NOT include tokens — user must sign in manually after reset.
+ */
+export interface ServiceResetPasswordBetaResultDTO {
+  userId: string
 }
 
 /**

@@ -1,7 +1,8 @@
 import type { User } from '@/modules/auth/models/users.model'
 import type { ZeroAccess } from '@/shared/utils/zero-access.utils'
-import type { BaseTokenPayload, RefreshTokenPayload, TokenPair } from '@/shared/types/jwt.utils.types'
+import type { Session } from '@/modules/auth/models/sessions.model'
 import type { NewOpaqueEnvelope, OpaqueEnvelope } from '@/modules/auth/models/opaque-envelopes.model'
+import type { BaseTokenPayload, RefreshTokenPayload, TokenPair } from '@/shared/types/jwt.utils.types'
 import type { KE1, KE2, KE3, RegistrationRecord, RegistrationRequest, RegistrationResponse, ServerState } from '@/shared/types/zero-access.utils.types'
 import type {
   // Service DTOs
@@ -9,7 +10,10 @@ import type {
   ServiceSignInAlphaResultDTO,
   ServiceSignInBetaResultDTO,
   ServiceRefreshTokenResultDTO,
+  ServiceResetPasswordBetaResultDTO,
   ServiceUserProfileResultDTO,
+  SessionDTO,
+  RevokeSessionResultDTO,
   // Request DTOs
   SignUpBetaRequestDTO,
   UpdateProfileRequestDTO,
@@ -23,6 +27,7 @@ import { logger, logError } from '@/configs/logger.configs'
 import { sessionStore } from '@/shared/utils/session-store.utils'
 import { REDIS_KEYS, TTL } from '@/shared/constants/redis.constants'
 import { UserRepository } from '@/modules/auth/repositories/user.repository'
+import { SessionRepository } from '@/modules/auth/repositories/session.repository'
 import { base64ToUint8Array, uint8ArrayToBuffer } from '@/shared/utils/common.utils'
 import { OpaqueEnvelopesRepository } from '@/modules/auth/repositories/opaque-envelopes.repository'
 import {
@@ -54,6 +59,7 @@ import {
 export class AuthService {
   private userRepository: UserRepository
   private opaqueEnvelopesRepository: OpaqueEnvelopesRepository
+  private sessionRepository: SessionRepository
 
   /**
    * Generate and Store Email Verification Token (Private Helper)
@@ -161,22 +167,45 @@ export class AuthService {
   }
 
   /**
-   * Store Refresh Token in Redis (Private Helper)
-   *
-   * Caches refresh token in Redis for validation during token refresh operations.
-   * Enables token reuse detection and invalidation on sign out.
-   *
-   * @param userId - User ID used as Redis key
-   * @param token - JWT refresh token string to store
-   * @remarks
-   * - Token expires in 7 days (TTL.REFRESH_TOKEN)
-   * - Fails gracefully if Redis unavailable (logs warning)
-   * - Used for token reuse detection in refreshToken method
-   * - Automatically overwritten on new token generation
+   * Store session refresh token in Redis keyed by channelId. (Private Helper)
    * @private
    */
-  private async storeRefreshToken(userId: string, token: string, ttl: number = TTL.REFRESH_TOKEN): Promise<void> {
-    await sessionStore.set(REDIS_KEYS.REFRESH_TOKEN(userId), token, ttl)
+  private async storeSessionToken(channelId: string, token: string, ttl: number): Promise<void> {
+    await sessionStore.set(REDIS_KEYS.SESSION_TOKEN(channelId), token, ttl)
+  }
+
+  /**
+   * Revoke all active sessions for a user — used by password change/reset
+   * to force re-authentication on all devices. (Private Helper)
+   *
+   * Deletes each session's Redis tokens and channel key, then marks all
+   * session rows as revoked in the database.
+   * @private
+   */
+  private revokeAllUserSessions = async (userId: string): Promise<void> => {
+    let activeSessions: Array<Session> = []
+    try {
+      activeSessions = await this.sessionRepository.findActiveByUserId(userId)
+    } catch {
+      // Sessions table may not exist yet (migration pending) — skip DB cleanup
+    }
+
+    await Promise.all(
+      activeSessions.map(async (session: Session): Promise<void> => {
+        await sessionStore.del(REDIS_KEYS.SESSION_TOKEN(session.channelId))
+        await sessionStore.del(REDIS_KEYS.SESSION_TOKEN_PREV(session.channelId))
+        await sessionStore.del(REDIS_KEYS.CHANNEL_KEY(session.channelId))
+        // Mark channel as revoked so auth middleware rejects in-flight access tokens immediately
+        await sessionStore.set(REDIS_KEYS.REVOKED_CHANNEL(session.channelId), '1', TTL.REVOKED_SESSION)
+      })
+    )
+
+    try {
+      await this.sessionRepository.revokeAllByUserId(userId)
+    } catch {
+      // Sessions table may not exist yet (migration pending) — skip DB revocation
+    }
+    logger.info('All user sessions revoked', { userId })
   }
 
   /**
@@ -189,7 +218,7 @@ export class AuthService {
    * @param user - Raw user object from database with all fields
    * @returns Sanitized user object without sensitive fields (deletedAt, etc.)
    * @remarks
-   * - Removes deletedAt field (soft delete timestamp)
+   * - Removes deletedAt field (soft delete typescript)
    * - Applied to all user data returned to client
    * - Maintains type safety with ServiceUserProfileResultDTO
    * @private
@@ -205,6 +234,7 @@ export class AuthService {
   constructor() {
     this.userRepository = new UserRepository()
     this.opaqueEnvelopesRepository = new OpaqueEnvelopesRepository()
+    this.sessionRepository = new SessionRepository()
   }
 
   /**
@@ -496,7 +526,20 @@ export class AuthService {
       refreshTokenTTL
     )
 
-    await this.storeRefreshToken(userId, tokens.refreshToken, refreshTokenTTL)
+    // Persist session record (non-fatal — login succeeds even if DB migration pending)
+    try {
+      await this.sessionRepository.create({
+        channelId,
+        userId,
+        ip,
+        userAgent,
+        isRememberMe: state.rememberMe,
+        expiresAt: new Date(Date.now() + refreshTokenTTL * 1000)
+      })
+    } catch (sessionErr: unknown) {
+      logger.warning('Could not persist session record — run DB migration to enable session management', { channelId, userId, cause: (sessionErr as Error).message })
+    }
+    await this.storeSessionToken(channelId, tokens.refreshToken, refreshTokenTTL)
 
     const loginEnvelope: OpaqueEnvelope | null = await this.opaqueEnvelopesRepository.findByUserId(userId)
     const clientED25519PublicKey: string | undefined = loginEnvelope ? uint8ArrayToBuffer(loginEnvelope.clientED25519PublicKey).toString('base64') : undefined
@@ -598,12 +641,17 @@ export class AuthService {
     }
 
     const userId: string = user._id
-    const storedToken: string | null = await sessionStore.get(REDIS_KEYS.REFRESH_TOKEN(userId))
 
-    // If Redis IS available but has no stored token for this user, the session
-    // was explicitly invalidated (e.g. via sign-out). Reject immediately rather
-    // than falling through to JWT-only validation, which would silently
-    // re-authenticate the user with a stale cookie.
+    // channelId is required for per-session token lookup
+    const channelId: string | undefined = typeof payload._sid === 'string' ? payload._sid : undefined
+    if (!channelId) {
+      throw new Error('Invalid refresh token')
+    }
+
+    const storedToken: string | null = await sessionStore.get(REDIS_KEYS.SESSION_TOKEN(channelId))
+
+    // If Redis IS available but has no stored token for this session, the session
+    // was explicitly invalidated (e.g. via sign-out or revoke). Reject immediately.
     if (storedToken === null && sessionStore.isRedisConnected) {
       throw new Error('Invalid refresh token')
     }
@@ -613,7 +661,7 @@ export class AuthService {
       // recently rotated out within the 30-second grace window — this happens when
       // the Next.js proxy and the browser api-client both fire a refresh request
       // simultaneously, each carrying the same (valid but now-superseded) token.
-      const prevToken: string | null = await sessionStore.get(REDIS_KEYS.REFRESH_TOKEN_PREV(userId))
+      const prevToken: string | null = await sessionStore.get(REDIS_KEYS.SESSION_TOKEN_PREV(channelId))
 
       if (prevToken === refreshToken) {
         // Concurrent request: a sibling already rotated this token. Issue a new
@@ -628,7 +676,7 @@ export class AuthService {
             username: user.username,
             role: user.role
           },
-          channelId: typeof payload._sid === 'string' ? payload._sid : undefined
+          channelId
         }
         const accessToken: string = await generateAccessToken(concurrentPayload)
         const decoded: BaseTokenPayload | null = await decodeToken(accessToken)
@@ -640,7 +688,6 @@ export class AuthService {
       throw new Error('Invalid refresh token')
     }
 
-    const channelIdFromToken: string | undefined = typeof payload._sid === 'string' ? payload._sid : undefined
     const userPayload = {
       user: {
         _id: userId,
@@ -649,7 +696,7 @@ export class AuthService {
         username: user.username,
         role: user.role
       },
-      channelId: channelIdFromToken
+      channelId
     }
 
     // Derive the Redis TTL from the incoming token's remaining lifetime so that
@@ -660,11 +707,9 @@ export class AuthService {
     // above already rejects expired tokens, so remainingTTL is always > 0.
     const remainingTTL: number = payload.exp ? payload.exp - Math.floor(Date.now() / 1000) : TTL.REFRESH_TOKEN
     // If the channel key exists, extend its TTL to match the new token's lifetime.
-    if (channelIdFromToken) {
-      const existingKey: string | null = await sessionStore.get(REDIS_KEYS.CHANNEL_KEY(channelIdFromToken))
-      if (existingKey) {
-        await sessionStore.set(REDIS_KEYS.CHANNEL_KEY(channelIdFromToken), existingKey, remainingTTL)
-      }
+    const existingKey: string | null = await sessionStore.get(REDIS_KEYS.CHANNEL_KEY(channelId))
+    if (existingKey) {
+      await sessionStore.set(REDIS_KEYS.CHANNEL_KEY(channelId), existingKey, remainingTTL)
     }
     // Generate new token pair.
     const tokens: TokenPair = await createJwtTokenPair(userPayload, remainingTTL)
@@ -672,10 +717,18 @@ export class AuthService {
     // Store the outgoing (now-superseded) token as "previous" for a short grace
     // window so concurrent requests that arrive with the old token can succeed.
     if (storedToken) {
-      await sessionStore.set(REDIS_KEYS.REFRESH_TOKEN_PREV(userId), storedToken, TTL.REFRESH_TOKEN_PREV)
+      await sessionStore.set(REDIS_KEYS.SESSION_TOKEN_PREV(channelId), storedToken, TTL.REFRESH_TOKEN_PREV)
     }
 
-    await sessionStore.set(REDIS_KEYS.REFRESH_TOKEN(userId), tokens.refreshToken, remainingTTL)
+    await sessionStore.set(REDIS_KEYS.SESSION_TOKEN(channelId), tokens.refreshToken, remainingTTL)
+
+    // Update session lastSeenAt in DB (non-critical — errors are suppressed)
+    try {
+      await this.sessionRepository.updateLastSeen(channelId)
+    } catch {
+      // Sessions table may not exist yet (migration pending)
+    }
+
     logger.info('Token refreshed successfully', { userId })
     return { userId, tokens }
   }
@@ -833,7 +886,7 @@ export class AuthService {
    * @throws Error "Failed to complete password reset" if envelope creation fails
    * @public
    */
-  public resetPasswordBeta = async (credentialIdentifier: string, newRecord: RegistrationRecord, context: string, ip: string, userAgent: string): Promise<ServiceSignInBetaResultDTO> => {
+  public resetPasswordBeta = async (credentialIdentifier: string, newRecord: RegistrationRecord, context: string, ip: string, userAgent: string): Promise<ServiceResetPasswordBetaResultDTO> => {
     // Retrieve and validate reset state
     const stateRaw: string | null = await sessionStore.get(REDIS_KEYS.RESET_PASSWORD_STATE(credentialIdentifier))
     if (!stateRaw) {
@@ -881,35 +934,12 @@ export class AuthService {
       throw new Error('Failed to complete password reset', { cause: envelopeError })
     }
 
-    // Invalidate all existing sessions
-    await sessionStore.del(REDIS_KEYS.REFRESH_TOKEN(userId))
-
-    // Issue fresh token pair with the new credentialIdentifier.
-    // Use env.sessionTTL (rememberMe=false after reset) so that Redis TTL,
-    // JWT exp, and cookie maxAge all derive from the same source.
-    const refreshTokenTTL: number = env.sessionTTL
-    const tokens: TokenPair = await createJwtTokenPair(
-      {
-        user: {
-          _id: userId,
-          _cid: credentialIdentifier,
-          email: user.email,
-          username: user.username,
-          role: user.role
-        }
-      },
-      refreshTokenTTL
-    )
-
-    await this.storeRefreshToken(userId, tokens.refreshToken, refreshTokenTTL)
+    // Revoke all existing sessions across all devices
+    await this.revokeAllUserSessions(userId)
 
     logger.info('Password reset successfully', { userId, email: user.email, ip, userAgent })
 
-    return {
-      user: this.sanitizeUser(user),
-      tokens,
-      rememberMe: false
-    }
+    return { userId }
   }
 
   /**
@@ -1166,8 +1196,8 @@ export class AuthService {
       throw new Error('Failed to update password')
     }
 
-    // Invalidate all existing refresh tokens for this user
-    await sessionStore.del(REDIS_KEYS.REFRESH_TOKEN(userId))
+    // Revoke all existing sessions across all devices
+    await this.revokeAllUserSessions(userId)
 
     // Generate new JWT token pair
     // Use env.sessionTTL (rememberMe=false after password change) so that
@@ -1190,8 +1220,19 @@ export class AuthService {
       refreshTokenTTL
     )
 
-    // Store new refresh token
-    await this.storeRefreshToken(userId, tokens.refreshToken, refreshTokenTTL)
+    try {
+      await this.sessionRepository.create({
+        channelId: changePwChannelId,
+        userId,
+        ip,
+        userAgent,
+        isRememberMe: false,
+        expiresAt: new Date(Date.now() + refreshTokenTTL * 1000)
+      })
+    } catch (sessionErr: unknown) {
+      logger.warning('Could not persist change-password session record — run DB migration to enable session management', { channelId: changePwChannelId, userId, cause: (sessionErr as Error).message })
+    }
+    await this.storeSessionToken(changePwChannelId, tokens.refreshToken, refreshTokenTTL)
 
     logger.info('Password changed successfully', {
       userId,
@@ -1370,17 +1411,131 @@ export class AuthService {
     if (ttl > 0) {
       await sessionStore.set(`blacklist:${token}`, '1', ttl)
     }
-    await sessionStore.del(REDIS_KEYS.REFRESH_TOKEN(userId))
-    // Also remove the previous-token grace window so concurrent refresh
-    // requests cannot succeed after sign-out.
-    await sessionStore.del(REDIS_KEYS.REFRESH_TOKEN_PREV(userId))
-    // Delete the channel encryption key so decryption is no longer possible
-    // for this session after sign-out.
+
     const channelId: string | undefined = typeof decoded?._sid === 'string' ? decoded._sid : undefined
     if (channelId) {
+      // Revoke the specific session for this device
+      await sessionStore.del(REDIS_KEYS.SESSION_TOKEN(channelId))
+      await sessionStore.del(REDIS_KEYS.SESSION_TOKEN_PREV(channelId))
       await sessionStore.del(REDIS_KEYS.CHANNEL_KEY(channelId))
+      // Defense-in-depth: set revocation flag so auth middleware rejects any
+      // concurrent in-flight access token for this channel (e.g. race condition
+      // between blacklist write and the next request arriving).
+      if (ttl > 0) {
+        await sessionStore.set(REDIS_KEYS.REVOKED_CHANNEL(channelId), '1', ttl)
+      }
+      try {
+        await this.sessionRepository.revokeByChannelId(channelId)
+      } catch {
+        // Sessions table may not exist yet (migration pending)
+      }
     }
+
     logger.info('User signed out successfully', { userId })
+  }
+
+  // ============================================================================
+  // Session Management
+  // ============================================================================
+
+  /**
+   * Get all active sessions for a user, annotating which one is current.
+   *
+   * @param userId - Authenticated user ID
+   * @param currentChannelId - Channel ID from the caller's access token (`_sid`)
+   */
+  public getSessions = async (userId: string, currentChannelId: string): Promise<Array<SessionDTO>> => {
+    try {
+      const activeSessions: Array<Session> = await this.sessionRepository.findActiveByUserId(userId)
+      return activeSessions.map(
+        (currentSession: Session): SessionDTO => ({
+          _id: currentSession._id,
+          ip: currentSession.ip,
+          userAgent: currentSession.userAgent,
+          isRememberMe: currentSession.isRememberMe,
+          createdAt: currentSession.createdAt,
+          lastSeenAt: currentSession.lastSeenAt,
+          expiresAt: currentSession.expiresAt,
+          isCurrent: currentSession.channelId === currentChannelId
+        })
+      )
+    } catch {
+      // Sessions table may not exist yet (migration pending) — return empty list
+      return []
+    }
+  }
+
+  /**
+   * Revoke a specific session by its DB _id.
+   *
+   * If the revoked session is the caller's own session (`isSelf = true`),
+   * the access token is also blacklisted so the client must re-authenticate.
+   *
+   * @param userId - Authenticated user ID (ownership check)
+   * @param sessionId - DB _id of the session to revoke
+   * @param currentChannelId - Channel ID from the caller's access token (`_sid`)
+   * @param accessToken - The caller's current access token (blacklisted if isSelf)
+   */
+  public revokeSession = async (userId: string, sessionId: string, currentChannelId: string, accessToken: string): Promise<RevokeSessionResultDTO> => {
+    // Let real DB errors propagate naturally so the controller can return 500.
+    // Only throw 'Session not found' when the row is genuinely absent or belongs to another user.
+    const session: Session | null = await this.sessionRepository.findById(sessionId)
+
+    if (!session || session.userId !== userId) {
+      throw new Error('Session not found')
+    }
+
+    if (session.revokedAt) {
+      // Already revoked — idempotent
+      return { isSelf: session.channelId === currentChannelId }
+    }
+
+    const { channelId } = session
+
+    await sessionStore.del(REDIS_KEYS.SESSION_TOKEN(channelId))
+    await sessionStore.del(REDIS_KEYS.SESSION_TOKEN_PREV(channelId))
+    await sessionStore.del(REDIS_KEYS.CHANNEL_KEY(channelId))
+    // Mark channel as revoked so auth middleware rejects in-flight access tokens immediately
+    await sessionStore.set(REDIS_KEYS.REVOKED_CHANNEL(channelId), '1', TTL.REVOKED_SESSION)
+    try {
+      await this.sessionRepository.revokeById(sessionId)
+    } catch {
+      // Sessions table may not exist yet (migration pending)
+    }
+
+    const isSelf: boolean = channelId === currentChannelId
+
+    if (isSelf) {
+      const decoded: BaseTokenPayload | null = await decodeToken(accessToken)
+      const ttl: number = decoded?.exp ? Math.max(decoded.exp - Math.floor(Date.now() / 1000), 0) : 0
+      if (ttl > 0) {
+        await sessionStore.set(`blacklist:${accessToken}`, '1', ttl)
+      }
+    }
+
+    logger.info('Session revoked', { userId, sessionId, channelId, isSelf })
+    return { isSelf }
+  }
+
+  /**
+   * Revoke ALL active sessions for a user (sign out everywhere).
+   *
+   * Deletes every session token from Redis, marks all session rows as revoked,
+   * and blacklists the caller's current access token.
+   *
+   * @param userId - Authenticated user ID
+   * @param accessToken - The caller's current access token (will be blacklisted)
+   */
+  public revokeAllSessions = async (userId: string, accessToken: string): Promise<void> => {
+    await this.revokeAllUserSessions(userId)
+
+    const decoded: BaseTokenPayload | null = await decodeToken(accessToken)
+    const ttl: number = decoded?.exp ? Math.max(decoded.exp - Math.floor(Date.now() / 1000), 0) : 0
+    if (ttl > 0) {
+      await sessionStore.set(`blacklist:${accessToken}`, '1', ttl)
+    }
+
+    logger.info('All sessions revoked (sign out everywhere)', { userId })
   }
 }
 

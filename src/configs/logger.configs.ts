@@ -247,7 +247,9 @@ export function logAuth(
     | 'reset_password_alpha'
     | 'reset_password_beta'
     | 'security_keys_alpha'
-    | 'security_keys_beta',
+    | 'security_keys_beta'
+    | 'revoke_session'
+    | 'revoke_all_sessions',
   userId: string | number,
   success: boolean,
   metadata?: Record<string, unknown>

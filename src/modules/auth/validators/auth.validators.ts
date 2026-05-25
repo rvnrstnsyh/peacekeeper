@@ -202,8 +202,7 @@ export const updateProfileSchema = z.object({
       },
       { message: 'Invalid date of birth' }
     ),
-  gender: z.enum(['male', 'female']).optional(),
-  address: z.string().min(10, 'Address must be at least 10 characters').max(500, 'Address must not exceed 500 characters').optional(),
+  gender: z.enum(['male', 'female']).nullable().optional(),
   avatar: z
     .string()
     .refine((val: string): boolean => /^https?:\/\/.+/.test(val) || /^\/uploads\/.+/.test(val), {
@@ -211,4 +210,9 @@ export const updateProfileSchema = z.object({
     })
     .nullable()
     .optional()
+})
+
+/** Path parameter for DELETE /sessions/:sessionId */
+export const sessionIdParamSchema = z.object({
+  sessionId: z.string().uuid('Invalid session ID')
 })

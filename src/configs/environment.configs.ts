@@ -266,6 +266,10 @@ export const env = {
     return parseDurationSeconds(environmentSchema.SESSION_TTL)
   },
 
+  get jwtAccessExpiresIn(): number {
+    return parseDurationSeconds(environmentSchema.JWT_ACCESS_EXPIRES_IN)
+  },
+
   get jwtEmailVerificationExpiresIn(): number {
     return parseDurationSeconds(environmentSchema.JWT_EMAIL_VERIFICATION_EXPIRES_IN)
   },

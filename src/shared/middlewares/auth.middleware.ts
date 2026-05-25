@@ -7,6 +7,7 @@ import { createMiddleware } from 'hono/factory'
 import { verifyToken } from '@/shared/utils/jwt.utils'
 import { remoteAddr } from '@/shared/utils/remote-addr.utils'
 import { logger, logSecurity } from '@/configs/logger.configs'
+import { REDIS_KEYS } from '@/shared/constants/redis.constants'
 import { sessionStore } from '@/shared/utils/session-store.utils'
 
 /**
@@ -183,6 +184,24 @@ export function authentication(options: AuthOptions = {}): MiddlewareHandler {
           path: ctx.req.path
         })
         return httpResponse.unauthorized(ctx, 'Token has been revoked')
+      }
+
+      // Check if the session channel has been remotely revoked (e.g. sign-out from another device)
+      if (checkBlacklist && payload._sid) {
+        try {
+          const channelRevoked: string | null = await sessionStore.get(REDIS_KEYS.REVOKED_CHANNEL(payload._sid))
+          if (channelRevoked !== null) {
+            logSecurity('blacklisted_token', 'high', {
+              userId: payload._id,
+              ip: remoteAddr(ctx),
+              path: ctx.req.path,
+              channelId: payload._sid
+            })
+            return httpResponse.unauthorized(ctx, 'Session has been revoked')
+          }
+        } catch {
+          // Redis unavailable — allow request to proceed (graceful degradation)
+        }
       }
 
       // Set user info in context for downstream handlers
