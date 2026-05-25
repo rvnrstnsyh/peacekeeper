@@ -30,6 +30,8 @@ endpoint
   // Broad DoS guard on all auth routes — keeps the door partially closed
   // even for endpoints that have no per-route limiter below.
   .use('*', rateLimitMiddleware({ max: 300, windowMs: 15 * 60 * 1000 }))
+  // Public — tells the client whether the DB is empty (first-admin bootstrap)
+  .get('/bootstrap', controller.getBootstrapStatus)
   // ── Registration ── 10 attempts/hr per IP (prevents account farming)
   .post('/sign-up/alpha', registrationRateLimiter, validateBody(signUpAlphaSchema), controller.signUpAlpha)
   .post('/sign-up/beta', registrationRateLimiter, validateBody(signUpBetaSchema), controller.signUpBeta)

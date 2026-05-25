@@ -30,6 +30,7 @@ import { UserRepository } from '@/modules/auth/repositories/user.repository'
 import { SessionRepository } from '@/modules/auth/repositories/session.repository'
 import { base64ToUint8Array, uint8ArrayToBuffer } from '@/shared/utils/common.utils'
 import { OpaqueEnvelopesRepository } from '@/modules/auth/repositories/opaque-envelopes.repository'
+import { InviteService } from '@/modules/invite/services/invite.service'
 import {
   createJwtTokenPair,
   decodeToken,
@@ -238,6 +239,21 @@ export class AuthService {
   }
 
   /**
+   * Bootstrap Status
+   *
+   * Returns whether the system has no registered users yet (bootstrap mode).
+   * When true, the first registration is allowed without an invitation code
+   * and that user automatically becomes the administrator.
+   *
+   * @returns Object with `bootstrap: true` if no users exist, `false` otherwise
+   * @public
+   */
+  public getBootstrapStatus = async (): Promise<{ bootstrap: boolean }> => {
+    const totalUsers: number = await this.userRepository.countAll()
+    return { bootstrap: totalUsers === 0 }
+  }
+
+  /**
    * Sign Up Beta - Complete OPAQUE Registration
    *
    * Finalizes user registration by creating user account and storing OPAQUE envelope.
@@ -293,6 +309,16 @@ export class AuthService {
     const totalUsers: number = await this.userRepository.countAll()
     const role: 'administrator' | 'user' = totalUsers === 0 ? 'administrator' : 'user'
 
+    // Non-admin registrations require a valid invitation code.
+    // Validate before any DB writes so an invalid code is rejected early.
+    if (role === 'user') {
+      if (!payload.inviteCode) {
+        throw new Error('Invitation code is required to register')
+      }
+      const inviteService = new InviteService()
+      await inviteService.validateInvitation(payload.inviteCode)
+    }
+
     let user: User
     try {
       user = await this.userRepository.create({ ...payload, role })
@@ -343,6 +369,18 @@ export class AuthService {
     this.generateVerificationToken(userId, user.email).catch((error: unknown) => {
       logError(error as Error, { service: 'AuthService', event: 'generate_verification_token', userId })
     })
+
+    // Redeem invite code — blocking so we know it was consumed.
+    // If the code became invalid between validateInvitation and now (sub-millisecond
+    // race), we log the anomaly but do not roll back the already-created account.
+    if (payload.inviteCode && role === 'user') {
+      try {
+        const inviteService = new InviteService()
+        await inviteService.redeemInvitation(payload.inviteCode)
+      } catch (redeemError: unknown) {
+        logError(redeemError as Error, { service: 'AuthService', event: 'redeem_invite_code_race', userId, code: payload.inviteCode })
+      }
+    }
 
     logger.info('User registered successfully', {
       userId,

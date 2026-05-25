@@ -91,6 +91,21 @@ export class AuthController {
   }
 
   /**
+   * GET /auth/bootstrap
+   * Public endpoint — returns whether the system has no users yet.
+   * The client uses this to skip the invitation step for the first admin.
+   */
+  public getBootstrapStatus = async (ctx: Context<Generics>): Promise<Response> => {
+    try {
+      const result = await this.authService.getBootstrapStatus()
+      return httpResponse.ok(ctx, 'Bootstrap status retrieved', undefined, result)
+    } catch (error) {
+      logError(error as Error, { controller: 'AuthController', method: 'getBootstrapStatus' })
+      return httpResponse.internalServerError(ctx, 'Failed to retrieve bootstrap status')
+    }
+  }
+
+  /**
    * Sign Up Alpha - Phase 1 of OPAQUE Registration
    *
    * Initiates user registration by processing the client's blinded message
@@ -218,6 +233,14 @@ export class AuthController {
 
       if (message.includes('Credential identifier already exists')) {
         return httpResponse.conflict(ctx, 'Credential identifier already exists')
+      }
+
+      if (message.includes('Invitation code is required')) {
+        return httpResponse.badRequest(ctx, 'Invitation code is required to register')
+      }
+
+      if (message.includes('Invitation not found') || message.includes('Invitation code is no longer valid')) {
+        return httpResponse.badRequest(ctx, 'Invalid or expired invitation code')
       }
 
       return httpResponse.badRequest(ctx, 'Registration failed')

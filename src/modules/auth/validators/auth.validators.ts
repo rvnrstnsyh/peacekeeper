@@ -79,7 +79,13 @@ export const signUpBetaSchema = z.object({
       })
     })
     .optional(),
-  address: z.string().min(10, 'Address must be at least 10 characters').max(500, 'Address must not exceed 500 characters').optional()
+  address: z.string().min(10, 'Address must be at least 10 characters').max(500, 'Address must not exceed 500 characters').optional(),
+  inviteCode: z
+    .string()
+    .min(1, 'Invite code cannot be empty')
+    .max(16, 'Invalid invite code')
+    .regex(/^[A-Z0-9]+$/, 'Invalid invite code format')
+    .optional()
 })
 
 export const signInAlphaSchema = z.object({

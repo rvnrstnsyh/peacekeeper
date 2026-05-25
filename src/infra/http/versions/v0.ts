@@ -9,6 +9,12 @@ export const v0Endpoint: VersionConfig = {
       module: async (): Promise<RouteModule> => (await import('../../../modules/auth/routes.js')).default,
       preload: true,
       description: 'Authentication endpoints'
+    },
+    {
+      path: '/invite',
+      module: async (): Promise<RouteModule> => (await import('../../../modules/invite/routes.js')).default,
+      preload: true,
+      description: 'Invitation code endpoints'
     }
   ],
   deprecated: false,

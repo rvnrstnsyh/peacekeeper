@@ -32,6 +32,8 @@ export interface SignUpBetaRequestDTO {
   dateOfBirth?: string
   gender?: 'male' | 'female'
   address?: string
+  /** Optional invitation code provided during sign-up */
+  inviteCode?: string
 }
 
 /**
