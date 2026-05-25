@@ -25,8 +25,10 @@ export const apiKeyStatusEnum: PgEnum<['active', 'revoked', 'expired']> = pgEnum
  * - OPAQUE mode: Required for API access (JWT only for UI)
  * - Traditional mode: Not used (JWT handles both UI and API)
  *
- * API Key Format: "sk_prod_" + random_string (e.g., sk_prod_abc123...)
- * Stored as hash in database for security
+ * API Key Format: "kid_prod_<8hex>.sk_prod_nvll_<48hex>"
+ * Example: kid_prod_a91f27c3.sk_prod_nvll_8kf3lxp2qa7wsy1zmc...
+ * - KID (key_prefix column): public identifier, safe to log and display
+ * - SK (secret): hashed with SHA-256 before storage, shown to user ONCE
  */
 export const apiKeys = pgTable(
   'api_keys',
@@ -50,9 +52,9 @@ export const apiKeys = pgTable(
     keyHash: varchar('key_hash', { length: 128 }).notNull(),
 
     /**
-     * Key Prefix (for identification)
-     * First 8 characters of the key (e.g., "sk_prod_")
-     * Helps users identify which key was used without exposing full key
+     * Key ID (KID) — public identifier portion of the key
+     * Format: kid_<env>_<8 hex chars>  (e.g., "kid_prod_a91f27c3")
+     * Safe to log, audit, and display. Never the secret.
      */
     keyPrefix: varchar('key_prefix', { length: 20 }).notNull(),
 
@@ -132,12 +134,29 @@ export type NewApiKey = typeof apiKeys.$inferInsert
 export type ApiKeyUpdate = Partial<Omit<NewApiKey, '_id' | 'userId' | 'createdAt'>>
 export type ApiKeyResponse = Omit<ApiKey, 'keyHash'> // Never expose hash
 
-export function generateApiKey(prefix: 'prod' | 'dev' = 'prod'): string {
-  const randomPart: string = Array.from(crypto.getRandomValues(new Uint8Array(24)))
+/**
+ * Generate a new API key in the format: `kid_<env>_<8hex>.<sk_<env>_<namespace>_<48hex>>`
+ *
+ * The KID (key identifier) is the public portion — safe to log and display.
+ * The SK (secret key) is the private portion — hashed before storage, shown to user once.
+ *
+ * @returns `key`  — the full key shown to the user once (KID + SK)
+ * @returns `kid`  — the public identifier stored as `keyPrefix` in the DB
+ */
+export function generateApiKey(prefix: 'prod' | 'dev' = 'prod', namespace = 'nvll'): { key: string; kid: string } {
+  // KID: 4 random bytes → 8 hex chars (public, safe for logs)
+  const kidHex: string = Array.from(crypto.getRandomValues(new Uint8Array(4)))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
+  const kid = `kid_${prefix}_${kidHex}`
 
-  return `sk_${prefix}_${randomPart}`
+  // SK: 24 random bytes → 48 hex chars (secret, hashed before DB)
+  const secretHex: string = Array.from(crypto.getRandomValues(new Uint8Array(24)))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+  const sk = `sk_${prefix}_${namespace}_${secretHex}`
+
+  return { key: `${kid}.${sk}`, kid }
 }
 
 export async function hashApiKey(key: string): Promise<string> {
@@ -149,8 +168,13 @@ export async function hashApiKey(key: string): Promise<string> {
   return hashArray.map((b: number): string => b.toString(16).padStart(2, '0')).join('')
 }
 
+/**
+ * Extract the KID (public key identifier) from a full API key.
+ * Returns the portion before the first `.` — e.g., `kid_prod_a91f27c3`.
+ */
 export function extractKeyPrefix(key: string): string {
-  return key.substring(0, 12)
+  const dotIndex = key.indexOf('.')
+  return dotIndex !== -1 ? key.substring(0, dotIndex) : key.substring(0, 20)
 }
 
 export function isApiKeyValid(apiKey: ApiKey): boolean {

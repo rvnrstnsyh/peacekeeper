@@ -15,6 +15,12 @@ export const v0Endpoint: VersionConfig = {
       module: async (): Promise<RouteModule> => (await import('../../../modules/invite/routes.js')).default,
       preload: true,
       description: 'Invitation code endpoints'
+    },
+    {
+      path: '/api-keys',
+      module: async (): Promise<RouteModule> => (await import('../../../modules/api-keys/routes.js')).default,
+      preload: true,
+      description: 'API key management endpoints'
     }
   ],
   deprecated: false,

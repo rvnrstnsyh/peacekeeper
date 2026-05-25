@@ -1,5 +1,6 @@
 import type { TimingVariables } from 'hono/timing'
 import type { HttpBindings } from '@hono/node-server'
+import type { User } from '@/modules/auth/models/users.model.js'
 import type { AccessTokenPayload } from '@/shared/types/jwt.utils.types.js'
 
 /**
@@ -34,6 +35,9 @@ declare global {
     decryptedBody: T
     // Authentication variables (set by auth middleware)
     session: AccessTokenPayload
+    // API key auth variables (set by apiKeyAuth middleware)
+    apiUser: User
+    apiKeyId: string
   }
 
   /**

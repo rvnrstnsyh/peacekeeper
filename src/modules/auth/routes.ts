@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
 import { auth } from '@/shared/middlewares/auth.middleware'
 import { AuthController } from '@/modules/auth/controllers/auth.controller'
-import { authRateLimiter, registrationRateLimiter, passwordResetRateLimiter, rateLimitMiddleware } from '@/shared/middlewares/rate-limit.middleware'
 import { channelEncryption } from '@/shared/middlewares/channel-encryption.middleware'
 import { validateBody, validateCookies, validateParams } from '@/shared/middlewares/validation.middleware'
+import { authRateLimiter, registrationRateLimiter, passwordResetRateLimiter, rateLimitMiddleware } from '@/shared/middlewares/rate-limit.middleware'
 import {
   changePasswordAlphaSchema,
   changePasswordBetaSchema,
