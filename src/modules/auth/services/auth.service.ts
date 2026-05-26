@@ -1,9 +1,8 @@
 import type { User } from '@/modules/auth/models/users.model'
-import type { ZeroAccess } from '@/shared/utils/zero-access.utils'
 import type { Session } from '@/modules/auth/models/sessions.model'
 import type { NewOpaqueEnvelope, OpaqueEnvelope } from '@/modules/auth/models/opaque-envelopes.model'
 import type { BaseTokenPayload, RefreshTokenPayload, TokenPair } from '@/shared/types/jwt.utils.types'
-import type { KE1, KE2, KE3, RegistrationRecord, RegistrationRequest, RegistrationResponse, ServerState } from '@/shared/types/zero-access.utils.types'
+import type { KE1, KE2, KE3, RegistrationRecord, RegistrationRequest, RegistrationResponse } from '@/shared/types/zero-access.utils.types'
 import type {
   // Service DTOs
   ServiceSignUpBetaResultDTO,
@@ -26,11 +25,12 @@ import { EmailService } from '@/shared/utils/email.utils'
 import { logger, logError } from '@/configs/logger.configs'
 import { sessionStore } from '@/shared/utils/session-store.utils'
 import { REDIS_KEYS, TTL } from '@/shared/constants/redis.constants'
+import { InviteService } from '@/modules/invite/services/invite.service'
 import { UserRepository } from '@/modules/auth/repositories/user.repository'
+import { ZeroAccessService } from '@/infra/grpc/services/zero-access.service'
 import { SessionRepository } from '@/modules/auth/repositories/session.repository'
 import { base64ToUint8Array, uint8ArrayToBuffer } from '@/shared/utils/common.utils'
 import { OpaqueEnvelopesRepository } from '@/modules/auth/repositories/opaque-envelopes.repository'
-import { InviteService } from '@/modules/invite/services/invite.service'
 import {
   createJwtTokenPair,
   decodeToken,
@@ -61,6 +61,7 @@ export class AuthService {
   private userRepository: UserRepository
   private opaqueEnvelopesRepository: OpaqueEnvelopesRepository
   private sessionRepository: SessionRepository
+  private zeroAccess!: ZeroAccessService
 
   /**
    * Generate and Store Email Verification Token (Private Helper)
@@ -236,6 +237,7 @@ export class AuthService {
     this.userRepository = new UserRepository()
     this.opaqueEnvelopesRepository = new OpaqueEnvelopesRepository()
     this.sessionRepository = new SessionRepository()
+    this.zeroAccess = ZeroAccessService.createFromEnv()
   }
 
   /**
@@ -392,6 +394,23 @@ export class AuthService {
   }
 
   /**
+   * Sign Up Alpha - Initiate OPAQUE Registration
+   *
+   * Evaluates the client's blinded message via the Rust OPRF service and
+   * returns a random credential identifier, evaluatedMessage, and serverPublicKey.
+   * This is phase 1 of the OPAQUE registration protocol.
+   *
+   * @param registrationRequest - OPAQUE registration request with blindedMessage
+   * @returns credentialIdentifier (Uint8Array), evaluatedMessage, serverX25519PublicKey
+   * @public
+   */
+  public signUpAlpha = async (registrationRequest: RegistrationRequest): Promise<{ credentialIdentifier: Uint8Array; registrationResponse: RegistrationResponse }> => {
+    const credentialIdentifier: Uint8Array = randomBytes(32)
+    const registrationResponse: RegistrationResponse = await this.zeroAccess.createRegistrationResponse(registrationRequest.blindedMessage, credentialIdentifier)
+    return { credentialIdentifier, registrationResponse }
+  }
+
+  /**
    * Sign In Alpha - Initiate OPAQUE Authentication
    *
    * Starts authentication using OPAQUE protocol phase 1 (signInAlpha → signInBeta).
@@ -408,9 +427,7 @@ export class AuthService {
    *
    * @param email - User's email address for lookup
    * @param ke1 - Key Exchange message 1 from client (OPAQUE protocol)
-   * @param serverKeyPair - Server's OPAQUE key pair (publicKey, privateKey)
-   * @param oprfSeed - OPRF seed for deterministic operations
-   * @param opaque - ZeroAccess instance for OPAQUE operations
+   * @param rememberMe - Whether to issue a long-lived refresh token
    * @returns Object containing KE2 message and base64 credential identifier
    * @throws Error "User not found" if email doesn't exist
    * @throws Error "Account is deactivated" if user.isActive is false
@@ -422,14 +439,7 @@ export class AuthService {
    * - ServerState contains expectedClientMac and sessionKey
    * @public
    */
-  public signInAlpha = async (
-    email: string,
-    ke1: KE1,
-    serverKeyPair: { privateKey: Uint8Array; publicKey: Uint8Array },
-    oprfSeed: Uint8Array,
-    opaque: ZeroAccess,
-    rememberMe: boolean
-  ): Promise<ServiceSignInAlphaResultDTO> => {
+  public signInAlpha = async (email: string, ke1: KE1, rememberMe: boolean): Promise<ServiceSignInAlphaResultDTO> => {
     const user: User | null = await this.userRepository.findByEmail(email)
     if (!user) {
       throw new Error('User not found')
@@ -457,22 +467,13 @@ export class AuthService {
       }
     }
 
-    const { ke2, state }: { ke2: KE2; state: ServerState } = opaque.generateKE2(
-      undefined,
-      serverKeyPair.privateKey,
-      serverKeyPair.publicKey,
-      record,
-      envelope.credentialIdentifier,
-      oprfSeed,
-      ke1,
-      undefined
-    )
+    const { ke2, expectedClientMac, sessionKey } = await this.zeroAccess.generateKe2(record, uint8ArrayToBuffer(envelope.credentialIdentifier), ke1)
     const credentialIdentifier: string = uint8ArrayToBuffer(envelope.credentialIdentifier).toString('base64')
 
     await this.storeOpaqueState(credentialIdentifier, {
       userId,
-      expectedClientMac: uint8ArrayToBuffer(state.expectedClientMac).toString('base64'),
-      sessionKey: uint8ArrayToBuffer(state.sessionKey).toString('base64'),
+      expectedClientMac: Buffer.from(expectedClientMac).toString('base64'),
+      sessionKey: Buffer.from(sessionKey).toString('base64'),
       rememberMe,
       timestamp: Date.now()
     })
@@ -501,7 +502,6 @@ export class AuthService {
    *
    * @param credentialIdentifier - Base64 credential identifier from signInAlpha
    * @param ke3 - Key Exchange message 3 from client containing clientMac
-   * @param opaque - ZeroAccess instance for MAC verification
    * @param ip - Client IP address for audit logging
    * @param userAgent - Client user agent for audit logging
    * @returns Object containing sanitized user data and JWT token pair
@@ -517,15 +517,15 @@ export class AuthService {
    * - Access token includes userId, email, username, and role in payload
    * @public
    */
-  public signInBeta = async (credentialIdentifier: string, ke3: KE3, opaque: ZeroAccess, ip: string, userAgent: string): Promise<ServiceSignInBetaResultDTO> => {
+  public signInBeta = async (credentialIdentifier: string, ke3: KE3, ip: string, userAgent: string): Promise<ServiceSignInBetaResultDTO> => {
     const state = await this.getOpaqueState(credentialIdentifier)
     if (!state) {
       throw new Error('Authentication session expired or not found')
     }
 
     const expectedClientMac: Uint8Array = base64ToUint8Array(state.expectedClientMac)
-    // Verify KE3 - MAC comparison
-    const isValid: boolean = opaque.verifyKE3(ke3.clientMac, expectedClientMac)
+    // Verify KE3 via Rust gRPC
+    const isValid: boolean = await this.zeroAccess.serverFinish(ke3.clientMac, expectedClientMac)
 
     if (!isValid) {
       // Cleanup state on failure
@@ -602,21 +602,20 @@ export class AuthService {
    *
    * @param credentialIdentifier - Base64 credential identifier from alpha phase
    * @param ke3 - Key Exchange message 3 from client containing clientMac
-   * @param opaque - ZeroAccess instance for MAC verification
    * @returns Object containing the user's OPAQUE client public key (base64)
    * @throws Error "Authentication session expired or not found" if state not in Redis
    * @throws Error "Invalid authentication - MAC verification failed" if MAC mismatch
    * @throws Error "Invalid credentials" if envelope not found
    * @public
    */
-  public securityKeysBeta = async (credentialIdentifier: string, ke3: KE3, opaque: ZeroAccess): Promise<{ clientED25519PublicKey: string; clientX25519PublicKey: string }> => {
+  public securityKeysBeta = async (credentialIdentifier: string, ke3: KE3): Promise<{ clientED25519PublicKey: string; clientX25519PublicKey: string }> => {
     const state = await this.getOpaqueState(credentialIdentifier)
     if (!state) {
       throw new Error('Authentication session expired or not found')
     }
 
     const expectedClientMac: Uint8Array = base64ToUint8Array(state.expectedClientMac)
-    const isValid: boolean = opaque.verifyKE3(ke3.clientMac, expectedClientMac)
+    const isValid: boolean = await this.zeroAccess.serverFinish(ke3.clientMac, expectedClientMac)
 
     if (!isValid) {
       await this.deleteOpaqueState(credentialIdentifier)
@@ -832,9 +831,6 @@ export class AuthService {
    *
    * @param resetToken - JWT password reset token from forgotPassword
    * @param registrationRequest - OPAQUE registration request with blindedMessage
-   * @param serverPublicKey - Server's OPAQUE public key
-   * @param oprfSeed - OPRF seed for deterministic operations
-   * @param opaque - ZeroAccess instance for OPAQUE operations
    * @returns Reset alpha response with new credentialIdentifier + OPRF result
    * @throws Error "Invalid or expired reset token" if token verification fails
    * @throws Error "Invalid or expired reset token" if Redis token mismatch
@@ -842,13 +838,7 @@ export class AuthService {
    * @throws Error "Account is deactivated" if user.isActive is false
    * @public
    */
-  public resetPasswordAlpha = async (
-    resetToken: string,
-    registrationRequest: RegistrationRequest,
-    serverPublicKey: Uint8Array,
-    oprfSeed: Uint8Array,
-    opaque: ZeroAccess
-  ): Promise<ResetPasswordAlphaResponseDTO> => {
+  public resetPasswordAlpha = async (resetToken: string, registrationRequest: RegistrationRequest): Promise<ResetPasswordAlphaResponseDTO> => {
     // Verify and decode the reset token
     let userId: string
     try {
@@ -874,7 +864,7 @@ export class AuthService {
 
     // Generate fresh credential identifier — full keypair reset
     const newCredentialIdentifier: Uint8Array = randomBytes(32)
-    const registrationResponse = opaque.createRegistrationResponse(registrationRequest, serverPublicKey, newCredentialIdentifier, oprfSeed)
+    const registrationResponse = await this.zeroAccess.createRegistrationResponse(registrationRequest.blindedMessage, newCredentialIdentifier)
     const credId: string = uint8ArrayToBuffer(newCredentialIdentifier).toString('base64')
 
     // Store transient reset state for beta phase
@@ -1047,9 +1037,6 @@ export class AuthService {
    * @param credentialIdentifier - User's current credential identifier
    * @param oldPasswordKE1 - KE1 message for old password authentication
    * @param newPasswordRegistrationRequest - Registration request for new password
-   * @param serverKeyPair - Server's OPAQUE key pair
-   * @param oprfSeed - OPRF seed for deterministic operations
-   * @param opaque - ZeroAccess instance for OPAQUE operations
    * @returns Object containing KE2, registration response, and credential identifier
    * @throws Error "User not found" if userId doesn't exist
    * @throws Error "Account is deactivated" if user.isActive is false
@@ -1064,10 +1051,7 @@ export class AuthService {
     userId: string,
     credentialIdentifier: Uint8Array,
     oldPasswordKE1: KE1,
-    newPasswordRegistrationRequest: RegistrationRequest,
-    serverKeyPair: { privateKey: Uint8Array; publicKey: Uint8Array },
-    oprfSeed: Uint8Array,
-    opaque: ZeroAccess
+    newPasswordRegistrationRequest: RegistrationRequest
   ): Promise<{
     ke2: KE2
     registrationResponse: RegistrationResponse
@@ -1100,27 +1084,21 @@ export class AuthService {
       }
     }
 
-    // Generate KE2 for old password authentication
-    const { ke2, state }: { ke2: KE2; state: ServerState } = opaque.generateKE2(
-      undefined,
-      serverKeyPair.privateKey,
-      serverKeyPair.publicKey,
+    // Generate KE2 and new-password registration response in one gRPC call
+    const { ke2, expectedClientMac, sessionKey, newEvaluatedMessage, newServerPublicKey } = await this.zeroAccess.createChangePasswordResponse(
       record,
       credentialIdentifier,
-      oprfSeed,
       oldPasswordKE1,
-      undefined
+      newPasswordRegistrationRequest.blindedMessage
     )
 
-    // Create registration response for new password
-    const registrationResponse: RegistrationResponse = opaque.createRegistrationResponse(newPasswordRegistrationRequest, serverKeyPair.publicKey, credentialIdentifier, oprfSeed)
     const credId: string = uint8ArrayToBuffer(credentialIdentifier).toString('base64')
 
     // Store state with both old and new password context
     await this.storeOpaqueState(credId, {
       userId,
-      expectedClientMac: uint8ArrayToBuffer(state.expectedClientMac).toString('base64'),
-      sessionKey: uint8ArrayToBuffer(state.sessionKey).toString('base64'),
+      expectedClientMac: Buffer.from(expectedClientMac).toString('base64'),
+      sessionKey: Buffer.from(sessionKey).toString('base64'),
       rememberMe: false,
       timestamp: Date.now()
     })
@@ -1132,7 +1110,10 @@ export class AuthService {
 
     return {
       ke2,
-      registrationResponse,
+      registrationResponse: {
+        evaluatedMessage: newEvaluatedMessage,
+        serverX25519PublicKey: newServerPublicKey
+      },
       credentialIdentifier: credId
     }
   }
@@ -1158,7 +1139,6 @@ export class AuthService {
    * @param credentialIdentifier - Base64 credential identifier from alpha phase
    * @param ke3 - KE3 message for old password verification
    * @param newRecord - New registration record for new password
-   * @param opaque - ZeroAccess instance for MAC verification
    * @param context - OPAQUE context string for protocol consistency
    * @param ip - Client IP address for audit logging
    * @param userAgent - Client user agent for audit logging
@@ -1180,7 +1160,6 @@ export class AuthService {
     credentialIdentifier: string,
     ke3: KE3,
     newRecord: RegistrationRecord,
-    opaque: ZeroAccess,
     context: string,
     ip: string,
     userAgent: string
@@ -1193,7 +1172,7 @@ export class AuthService {
 
     // Verify old password via MAC comparison
     const expectedClientMac: Uint8Array = base64ToUint8Array(state.expectedClientMac)
-    const isValid: boolean = opaque.verifyKE3(ke3.clientMac, expectedClientMac)
+    const isValid: boolean = await this.zeroAccess.serverFinish(ke3.clientMac, expectedClientMac)
 
     if (!isValid) {
       // Cleanup state on failure
@@ -1214,11 +1193,12 @@ export class AuthService {
       throw new Error('Account is deactivated')
     }
 
-    // Update OPAQUE envelope with new password data
+    // Update OPAQUE envelope with new password data.
+    // clientED25519PublicKey and clientX25519PublicKey are NOT updated here —
+    // keypair identity is preserved across password changes and only replaced
+    // during a full password reset (resetPasswordBeta).
     const credentialIdBuffer: Buffer = Buffer.from(credentialIdentifier, 'base64')
     const updatedEnvelopeData = {
-      clientED25519PublicKey: uint8ArrayToBuffer(newRecord.clientED25519PublicKey),
-      clientX25519PublicKey: uint8ArrayToBuffer(newRecord.clientX25519PublicKey),
       maskingKey: uint8ArrayToBuffer(newRecord.maskingKey),
       nonce: uint8ArrayToBuffer(newRecord.envelope.nonce),
       authTag: uint8ArrayToBuffer(newRecord.envelope.authTag),

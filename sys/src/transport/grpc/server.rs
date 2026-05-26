@@ -11,7 +11,7 @@ async fn shutdown() {
   {
     use tokio::signal::unix::{signal, SignalKind};
 
-    let mut sigterm = signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+    let mut sigterm: signal::unix::Signal = signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
     tokio::select! {
         _ = signal::ctrl_c() => {
             tracing::info!("received Ctrl+C");
@@ -31,7 +31,7 @@ async fn shutdown() {
 
 pub async fn listen(address: SocketAddr) -> Result<()> {
   let common_service: PublicService = PublicService::default();
-  let zero_access_service: ZeroAccessService = ZeroAccessService::default();
+  let zero_access_service: ZeroAccessService = ZeroAccessService::new().expect("OPAQUE server keys must be set (OPAQUE_SERVER_PRIVATE_KEY, OPAQUE_SERVER_PUBLIC_KEY, OPAQUE_SEED)");
 
   tracing::info!("gRPC server listening on {}", address);
 

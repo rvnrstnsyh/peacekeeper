@@ -39,21 +39,13 @@ import type {
 
 import { decodeBase64 } from 'hono/utils/encode'
 import { env } from '@/configs/environment.configs'
-import { randomBytes } from '@noble/hashes/utils.js'
 import { deleteCookie, setCookie } from 'hono/cookie'
 import { remoteAddr } from '@/shared/utils/remote-addr.utils'
-import { ZeroAccess } from '@/shared/utils/zero-access.utils'
 import { getTokenRemainingTime } from '@/shared/utils/jwt.utils'
 import { AuthService } from '@/modules/auth/services/auth.service'
 import { Serializer } from '@/shared/utils/zero-access.utils/serializer'
 import { logAuth, logError, logger, logSecurity } from '@/configs/logger.configs'
 import { base64ToUint8Array, uint8ArrayToBase64 } from '@/shared/utils/common.utils'
-
-/**
- * OPAQUE protocol instance for secure password authentication
- * Initialized with server context for cryptographic operations
- */
-export const opaque: ZeroAccess = new ZeroAccess(env.OPAQUE_CONTEXT)
 
 /**
  * AuthController
@@ -131,8 +123,7 @@ export class AuthController {
       const registrationRequest: RegistrationRequest = {
         blindedMessage: decodeBase64(payload.request.blindedMessage)
       }
-      const credentialIdentifier: Uint8Array = randomBytes(32)
-      const registrationResponse: RegistrationResponse = opaque.createRegistrationResponse(registrationRequest, env.serverKeyPair.publicKey, credentialIdentifier, env.oprfSeed)
+      const { credentialIdentifier, registrationResponse } = await this.authService.signUpAlpha(registrationRequest)
 
       logAuth('sign_up_alpha', ip, true)
 
@@ -280,7 +271,7 @@ export class AuthController {
     try {
       const payload: SignInAlphaRequestDTO = ctx.get('validatedBody') as SignInAlphaRequestDTO
       const ke1: KE1 = Serializer.deserializeKE1(payload.ke1)
-      const { ke2, credentialIdentifier }: ServiceSignInAlphaResultDTO = await this.authService.signInAlpha(payload.email, ke1, env.serverKeyPair, env.oprfSeed, opaque, payload.rememberMe)
+      const { ke2, credentialIdentifier }: ServiceSignInAlphaResultDTO = await this.authService.signInAlpha(payload.email, ke1, payload.rememberMe)
 
       logAuth('sign_in_alpha', credentialIdentifier, true, { ip })
 
@@ -331,7 +322,7 @@ export class AuthController {
     try {
       const payload: SignInBetaRequestDTO = ctx.get('validatedBody') as SignInBetaRequestDTO
       const ke3: KE3 = Serializer.deserializeKE3(payload.ke3)
-      const signInResult: ServiceSignInBetaResultDTO = await this.authService.signInBeta(payload.credentialIdentifier, ke3, opaque, ip, userAgent)
+      const signInResult: ServiceSignInBetaResultDTO = await this.authService.signInBeta(payload.credentialIdentifier, ke3, ip, userAgent)
       const userId: string = signInResult.user._id
       const cookieTTL: number = await getTokenRemainingTime(signInResult.tokens.refreshToken)
 
@@ -500,7 +491,7 @@ export class AuthController {
       const payload: ResetPasswordAlphaRequestDTO = ctx.get('validatedBody') as ResetPasswordAlphaRequestDTO
       const registrationRequest = { blindedMessage: decodeBase64(payload.request.blindedMessage) }
 
-      const result: ResetPasswordAlphaResponseDTO = await this.authService.resetPasswordAlpha(payload.resetToken, registrationRequest, env.serverKeyPair.publicKey, env.oprfSeed, opaque)
+      const result: ResetPasswordAlphaResponseDTO = await this.authService.resetPasswordAlpha(payload.resetToken, registrationRequest)
 
       logAuth('reset_password_alpha', ip, true)
 
@@ -662,10 +653,7 @@ export class AuthController {
         userId,
         base64ToUint8Array(session._cid),
         oldPasswordKE1,
-        newPasswordRegistrationRequest,
-        env.serverKeyPair,
-        env.oprfSeed,
-        opaque
+        newPasswordRegistrationRequest
       )
 
       logAuth('change_password_alpha', userId, true, { ip, userAgent })
@@ -749,7 +737,7 @@ export class AuthController {
       // Deserialize new registration record
       const newRecord: RegistrationRecord = Serializer.deserializeRegistrationRecord(payload.newRecord)
       // Complete password change through service
-      const result: ServiceSignInBetaResultDTO = await this.authService.changePasswordBeta(userId, payload.credentialIdentifier, ke3, newRecord, opaque, env.OPAQUE_CONTEXT, ip, userAgent)
+      const result: ServiceSignInBetaResultDTO = await this.authService.changePasswordBeta(userId, payload.credentialIdentifier, ke3, newRecord, env.OPAQUE_CONTEXT, ip, userAgent)
 
       logAuth('change_password_beta', userId, true, {
         email: result.user.email,
@@ -1126,7 +1114,7 @@ export class AuthController {
     try {
       const payload: SecurityKeysAlphaRequestDTO = ctx.get('validatedBody') as SecurityKeysAlphaRequestDTO
       const ke1: KE1 = Serializer.deserializeKE1(payload.ke1)
-      const { ke2, credentialIdentifier }: ServiceSignInAlphaResultDTO = await this.authService.signInAlpha(payload.email, ke1, env.serverKeyPair, env.oprfSeed, opaque, false)
+      const { ke2, credentialIdentifier }: ServiceSignInAlphaResultDTO = await this.authService.signInAlpha(payload.email, ke1, false)
 
       logAuth('security_keys_alpha', credentialIdentifier, true, { ip })
 
@@ -1166,7 +1154,7 @@ export class AuthController {
     try {
       const payload: SecurityKeysBetaRequestDTO = ctx.get('validatedBody') as SecurityKeysBetaRequestDTO
       const ke3: KE3 = Serializer.deserializeKE3(payload.ke3)
-      const result: SecurityKeysBetaResponseDTO = await this.authService.securityKeysBeta(payload.credentialIdentifier, ke3, opaque)
+      const result: SecurityKeysBetaResponseDTO = await this.authService.securityKeysBeta(payload.credentialIdentifier, ke3)
 
       logAuth('security_keys_beta', ip, true, { ip })
 

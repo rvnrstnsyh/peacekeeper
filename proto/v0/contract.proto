@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package v0;
 
+// ─── Public service ───────────────────────────────────────────────────────────
+
 service Public {
   rpc Health(HealthRequest) returns (HealthResponse);
 }
@@ -12,9 +14,187 @@ message HealthRequest {
 
 message HealthResponse {
   string payload = 1;
-  string data = 2;
+  string data    = 2;
 }
 
+// ─── Shared OPAQUE message types ─────────────────────────────────────────────
+//
+// Binary fields use `bytes` (maps to Uint8Array in TypeScript, Vec<u8>/Bytes in Rust).
+// All sizes follow RFC 9807 / ristretto255-SHA512 configuration:
+//   Nh=64  Nn=32  Nm=64  Npk=32  Noe=32  Nok=32  Nseed=32  Nsk=32
+
+// Stored OPAQUE registration record (reconstructed from database fields).
+message OpaqueRecord {
+  bytes client_ed25519_public_key = 1; // Ed25519 signing public key — 32 bytes
+  bytes client_x25519_public_key  = 2; // X25519 long-term public key — 32 bytes
+  bytes masking_key               = 3; // Envelope masking key — 64 bytes (Nh)
+  bytes envelope_nonce            = 4; // Envelope nonce — 32 bytes (Nn)
+  bytes envelope_auth_tag         = 5; // Envelope HMAC-SHA512 tag — 64 bytes (Nm)
+  bytes envelope_seed             = 6; // Encrypted client keypair seed — 32 bytes (Nseed)
+}
+
+// Client credential request: blinded password sent to server for OPRF evaluation.
+message OpaqueCredentialRequest {
+  bytes blinded_message = 1; // ristretto255 point (blinded password) — 32 bytes (Noe)
+}
+
+// Client auth request: ephemeral keyshare + nonce (part of KE1).
+message OpaqueAuthRequest {
+  bytes client_nonce                  = 1; // Random nonce — 32 bytes (Nn)
+  bytes client_x25519_public_keyshare = 2; // Ephemeral X25519 public key — 32 bytes (Npk)
+}
+
+// KE1: client's first AKE message (credential request + auth request).
+message OpaqueKe1 {
+  OpaqueCredentialRequest credential_request = 1;
+  OpaqueAuthRequest       auth_request       = 2;
+}
+
+// Server credential response: evaluated OPRF output + masked envelope.
+// masked_response size = Npk + Nn + Nm + Nseed = 32+32+64+32 = 160 bytes
+message OpaqueCredentialResponse {
+  bytes evaluated_message = 1; // ristretto255 element (OPRF output) — 32 bytes (Noe)
+  bytes masking_nonce     = 2; // Random nonce for credential masking — 32 bytes (Nn)
+  bytes masked_response   = 3; // XOR-masked (serverPublicKey || envelope) — 160 bytes
+}
+
+// Server auth response: ephemeral keyshare + nonce + MAC (part of KE2).
+message OpaqueAuthResponse {
+  bytes server_nonce                  = 1; // Random nonce — 32 bytes (Nn)
+  bytes server_x25519_public_keyshare = 2; // Ephemeral X25519 public key — 32 bytes (Npk)
+  bytes server_mac                    = 3; // HMAC-SHA512 server authentication tag — 64 bytes (Nm)
+}
+
+// KE2: server's AKE message (credential response + auth response).
+message OpaqueKe2 {
+  OpaqueCredentialResponse credential_response = 1;
+  OpaqueAuthResponse       auth_response       = 2;
+}
+
+// ─── ZeroAccess service ───────────────────────────────────────────────────────
+//
+// All server-side OPAQUE operations. The Rust service loads its long-term keys
+// (OPAQUE_SERVER_PRIVATE_KEY, OPAQUE_SERVER_PUBLIC_KEY, OPAQUE_SEED) directly
+// from environment variables — clients never transmit secret key material.
+//
+// RFC 9807 — OPAQUE: An Asymmetric PAKE Protocol
+// Configuration: ristretto255-SHA512 / Argon2id / X25519-3DH
+
 service ZeroAccess {
-  //
+  // Registration phase, step 2 of 3:
+  //   Server evaluates the OPRF on the client's blinded password.
+  //   Derives the per-credential OPRF key from OPAQUE_SEED + credential_identifier.
+  //   Returns the evaluated element and the server's long-term public key.
+  //   RFC 9807 §5.1.2 — CreateRegistrationResponse
+  rpc CreateRegistrationResponse(CreateRegistrationResponseRequest)
+      returns (CreateRegistrationResponseReply);
+
+  // Authentication (AKE) phase, step 2 of 4:
+  //   Server evaluates OPRF, masks the credential response, performs triple-DH,
+  //   derives session keys, and produces a server MAC for mutual authentication.
+  //   Returns KE2 + server state (expectedClientMac, sessionKey) for Redis storage.
+  //   RFC 9807 §6.2.4 — GenerateKE2
+  rpc GenerateKE2(GenerateKE2Request)
+      returns (GenerateKE2Reply);
+
+  // Authentication (AKE) phase, step 4 of 4:
+  //   Server verifies the client MAC from KE3 using constant-time comparison.
+  //   Both ke3_client_mac and expected_client_mac are 64-byte HMAC-SHA512 values.
+  //   RFC 9807 §6.2.6 — ServerVerifyKE3
+  rpc ServerFinish(ServerFinishRequest)
+      returns (ServerFinishReply);
+
+  // Password change phase, step 2 of 4:
+  //   Server simultaneously handles old-password AKE (GenerateKE2) and
+  //   new-password registration response (CreateRegistrationResponse).
+  //   Atomic: client must verify old password before new record is accepted.
+  //   RFC 9807 — combined ChangePassword flow
+  rpc CreateChangePasswordResponse(CreateChangePasswordResponseRequest)
+      returns (CreateChangePasswordResponseReply);
+}
+
+// ─── CreateRegistrationResponse ──────────────────────────────────────────────
+
+message CreateRegistrationResponseRequest {
+  // Client's blinded password (ristretto255 point, 32 bytes).
+  bytes blinded_message = 1;
+  // Unique per-credential identifier used to derive the OPRF key from OPAQUE_SEED.
+  // Max 256 bytes. Typically: user's credential identifier bytes stored in DB.
+  bytes credential_identifier = 2;
+}
+
+message CreateRegistrationResponseReply {
+  // OPRF-evaluated element: blindedMessage * oprfKey (ristretto255 point, 32 bytes).
+  bytes evaluated_message = 1;
+  // Server's long-term X25519 public key (32 bytes).
+  // Loaded from OPAQUE_SERVER_PUBLIC_KEY env var.
+  bytes server_public_key = 2;
+}
+
+// ─── GenerateKE2 ─────────────────────────────────────────────────────────────
+
+message GenerateKE2Request {
+  // The stored OPAQUE registration record for this credential (from database).
+  OpaqueRecord record = 1;
+  // Credential identifier used to derive the per-credential OPRF key.
+  bytes credential_identifier = 2;
+  // KE1 message received from the client.
+  OpaqueKe1 ke1 = 3;
+  // Optional server identity override (empty bytes = default to server public key).
+  bytes server_identity = 4;
+  // Optional client identity override (empty bytes = default to client public key).
+  bytes client_identity = 5;
+}
+
+message GenerateKE2Reply {
+  // KE2 message to return to the client.
+  OpaqueKe2 ke2 = 1;
+  // Server state for KE3 verification — persist in Redis with short TTL (5 min).
+  // expectedClientMac: the HMAC the client must produce to authenticate — 64 bytes.
+  bytes expected_client_mac = 2;
+  // sessionKey: the shared session key established via triple-DH — 64 bytes.
+  // Used for channel encryption (AES-256-GCM) after successful authentication.
+  bytes session_key = 3;
+}
+
+// ─── ServerFinish ─────────────────────────────────────────────────────────────
+
+message ServerFinishRequest {
+  // Client MAC from KE3 message (ke3.clientMac) — 64 bytes (Nm).
+  bytes ke3_client_mac = 1;
+  // Expected client MAC from Redis state (produced during GenerateKE2) — 64 bytes.
+  bytes expected_client_mac = 2;
+}
+
+message ServerFinishReply {
+  // true if MACs match (constant-time comparison); false if authentication fails.
+  bool valid = 1;
+}
+
+// ─── CreateChangePasswordResponse ────────────────────────────────────────────
+
+message CreateChangePasswordResponseRequest {
+  // Credential identifier for looking up the stored record.
+  bytes credential_identifier = 1;
+  // KE1 for old password authentication (proves knowledge of current password).
+  OpaqueKe1 old_password_ke1 = 2;
+  // Registration request for the new password (blinded new password for OPRF).
+  OpaqueCredentialRequest new_password_reg_request = 3;
+  // The stored OPAQUE registration record for the current password (from database).
+  OpaqueRecord record = 4;
+  // Optional server identity override (empty bytes = default to server public key).
+  bytes server_identity = 5;
+  // Optional client identity override (empty bytes = default to client public key).
+  bytes client_identity = 6;
+}
+
+message CreateChangePasswordResponseReply {
+  // KE2 for old password — client must verify server MAC and produce KE3.
+  OpaqueKe2 old_password_ke2 = 1;
+  // Server state for KE3 verification — persist in Redis with short TTL.
+  bytes expected_client_mac = 2; // 64 bytes
+  bytes session_key         = 3; // 64 bytes
+  // New password registration response — client uses this to finalize new envelope.
+  bytes new_evaluated_message = 4; // ristretto255 element — 32 bytes
+  bytes new_server_public_key = 5; // X25519 public key — 32 bytes
 }

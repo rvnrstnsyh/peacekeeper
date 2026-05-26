@@ -9,18 +9,45 @@ edition = "2024"
 rust-version = "1.92.0"
 
 [dependencies]
-anyhow = "1.0"
+anyhow = "1.0.102"
 dotenvy = "0.15.7"
 prost = "0.14.3"
 proto = "0.1.2"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
-tokio = { version = "1.49.0", features = ["full"] }
-tonic = "0.14.2"
-tonic-prost = "0.14.2"
-tonic-reflection = "0.14.2"
+serde_json = "1.0.150"
+tokio = { version = "1.52.3", features = ["full"] }
+tonic = "0.14.6"
+tonic-prost = "0.14.6"
+tonic-reflection = "0.14.6"
+time = { version = "0.3", features = ["formatting", "macros"] }
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+
+# ─── OPAQUE / Zero-Access crypto ─────────────────────────────────────────────
+# ristretto255 group ops + Scalar arithmetic (Scalar::from_bytes_mod_order for LE scalar encoding)
+curve25519-dalek = { version = "4", features = ["digest", "rand_core"] }
+# X25519 Diffie-Hellman (ephemeral + static secrets for triple-DH)
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+# Ed25519 signing keypair derivation from 32-byte seed
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+# SHA-512 (OPRF finalize hash, preamble hash, HKDF base)
+sha2 = "0.11.0"
+# HMAC-SHA512 (MAC computation for KE2/KE3 auth tags)
+hmac = "0.13.0"
+# HKDF extract + expand (key schedule, expandLabel, deriveKeys)
+hkdf = "0.13.0"
+# Argon2id MHF: t=3, m=65536, p=4, output=64 bytes (must match TS exactly)
+argon2 = "0.5"
+# OS CSPRNG (nonce/ephemeral key generation, equivalent to randomBytes())
+rand = "0.8"
+rand_core = "0.6"
+# Constant-time comparison (ServerFinish MAC verification — prevents timing attacks)
+subtle = "2"
+# Secure memory zeroing on drop (equivalent to secureZero() in TypeScript)
+zeroize = { version = "1", features = ["derive"] }
+# Base64 encoding/decoding (loading env vars: OPAQUE_SEED, SERVER_PRIVATE_KEY, etc.)
+base64 = "0.22"
 
 [dev-dependencies]
 criterion = "0.8.1"
